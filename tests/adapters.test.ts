@@ -7,13 +7,26 @@ import { KaafAdapter } from "../src/adapters/kaaf.js";
 import { KorMarathonAdapter } from "../src/adapters/kormarathon.js";
 import { MaedalAdapter } from "../src/adapters/maedal.js";
 import { MarathonMateAdapter } from "../src/adapters/marathonmate.js";
-import { MarathonMoaAdapter } from "../src/adapters/marathonmoa.js";
+import {
+  MarathonMoaAdapter,
+  parseMarathonMoaRegistrationUrls,
+} from "../src/adapters/marathonmoa.js";
 import { RunningMapAdapter } from "../src/adapters/runningmap.js";
 import type { SourceAdapter } from "../src/adapters/types.js";
 import { RaceSchema } from "../src/contract.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FIXTURES_DIR = resolve(__dirname, "fixtures");
+const adapters: ReadonlyArray<SourceAdapter> = [
+  GoRunningAdapter,
+  KorMarathonAdapter,
+  EMarathonAdapter,
+  MaedalAdapter,
+  KaafAdapter,
+  MarathonMoaAdapter,
+  RunningMapAdapter,
+  MarathonMateAdapter,
+];
 
 async function collectFromFixture(adapter: SourceAdapter) {
   return adapter.collect({
@@ -45,6 +58,21 @@ describe("GoRunning adapter", () => {
   it("does not make live requests when fixtureDir is provided", async () => {
     const result = await collectFromFixture(GoRunningAdapter);
     expect(result.metadata.succeeded).toBe(true);
+  });
+
+  it("retains legacy list data when its detail fixture is missing", async () => {
+    const result = await GoRunningAdapter.collect({
+      fixtureDir: `${FIXTURES_DIR}/gorunning/missing-detail`,
+      detailBudget: 5,
+    });
+
+    expect(result.races).toHaveLength(1);
+    expect(result.races[0]).toMatchObject({
+      name: "제31회 누락고런마라톤",
+      eventDate: "2026-09-20",
+      venue: "서울 한강공원",
+      verified: false,
+    });
   });
 });
 
@@ -97,11 +125,12 @@ describe("e-Marathon adapter", () => {
 });
 
 describe("Maedal adapter", () => {
-  it("collects metadata-only races from fixture", async () => {
+  it("does not publish metadata-only links without a real event date", async () => {
     const result = await collectFromFixture(MaedalAdapter);
     expect(result.metadata.id).toBe("maedal");
     expect(result.metadata.attempted).toBe(true);
-    expect(result.races.length).toBeGreaterThanOrEqual(1);
+    expect(result.metadata.succeeded).toBe(true);
+    expect(result.races.every((race) => race.eventDate !== "2025-01-01")).toBe(true);
     for (const race of result.races) {
       const parsed = RaceSchema.safeParse(race);
       expect(parsed.success).toBe(true);
@@ -149,14 +178,37 @@ describe("Marathon Moa adapter", () => {
       expect(race.courses).toEqual([]);
     }
   });
+
+  it("uses the registration URL embedded in the public RSC payload", async () => {
+    const result = await MarathonMoaAdapter.collect({
+      fixtureDir: `${FIXTURES_DIR}/marathonmoa/registration-rsc`,
+      detailBudget: 0,
+    });
+
+    expect(result.races[0]?.applicationUrl).toBe("https://apply.example.com/register");
+    expect(
+      result.discoveredLinks.filter(
+        (link) => link.kind === "application" && new URL(link.url).hostname === "marathon.me.kr",
+      ),
+    ).toEqual([]);
+  });
+
+  it("maps registration URLs from neighboring RSC event records", () => {
+    const html = String.raw`\"id\":\"11111111-1111-4111-8111-111111111111\",\"source_id\":\"first\",\"registration_url\":\"https://first.example/register\"},{\"id\":\"22222222-2222-4222-8222-222222222222\",\"source_id\":\"second\",\"registration_url\":\"https://second.example/register\"`;
+
+    expect([...parseMarathonMoaRegistrationUrls(html)]).toEqual([
+      ["11111111-1111-4111-8111-111111111111", "https://first.example/register"],
+      ["22222222-2222-4222-8222-222222222222", "https://second.example/register"],
+    ]);
+  });
 });
 
 describe("RunningMap adapter", () => {
-  it("collects races from map fixture", async () => {
+  it("does not publish map links without a real event date", async () => {
     const result = await collectFromFixture(RunningMapAdapter);
     expect(result.metadata.id).toBe("runningmap");
     expect(result.metadata.attempted).toBe(true);
-    expect(result.races.length).toBeGreaterThanOrEqual(1);
+    expect(result.races).toEqual([]);
     for (const race of result.races) {
       const parsed = RaceSchema.safeParse(race);
       expect(parsed.success).toBe(true);
@@ -177,18 +229,26 @@ describe("MarathonMate adapter", () => {
   });
 });
 
-describe("All adapters fail gracefully with missing fixtures", () => {
-  const adapters: SourceAdapter[] = [
-    GoRunningAdapter,
-    KorMarathonAdapter,
-    EMarathonAdapter,
-    MaedalAdapter,
-    KaafAdapter,
-    MarathonMoaAdapter,
-    RunningMapAdapter,
-    MarathonMateAdapter,
-  ];
+describe("Adapter result contract", () => {
+  for (const adapter of adapters) {
+    it(`${adapter.id}: returns discovered links outside public races`, async () => {
+      const result = await collectFromFixture(adapter);
 
+      expect(result.discoveredLinks).toEqual([]);
+      for (const race of result.races) {
+        expect(race.eventDate).not.toBe("2025-01-01");
+        expect(race).not.toHaveProperty("dedupKey");
+        expect(race).not.toHaveProperty("kind");
+        expect(race).not.toHaveProperty("url");
+        expect(race).not.toHaveProperty("sourceId");
+        expect(race).not.toHaveProperty("sourcePageUrl");
+        expect(race).not.toHaveProperty("evidence");
+      }
+    });
+  }
+});
+
+describe("All adapters fail gracefully with missing fixtures", () => {
   for (const adapter of adapters) {
     it(`${adapter.id}: returns error metadata when fixtures are missing`, async () => {
       const result = await adapter.collect({
@@ -200,6 +260,7 @@ describe("All adapters fail gracefully with missing fixtures", () => {
       expect(result.metadata.succeeded).toBe(false);
       expect(result.metadata.recordCount).toBe(0);
       expect(result.races).toHaveLength(0);
+      expect(result.discoveredLinks).toEqual([]);
     });
   }
 });
