@@ -6,9 +6,12 @@
  */
 import type { Race } from "../contract.js";
 import { computeRegistrationStatus } from "../contract.js";
+import { discoverRaceLinks } from "../official-sites/discovery.js";
+import { detailFixtureName, safeRunningMapDetailUrl } from "./detail-source-url.js";
 import {
   type AdapterResult,
   type CollectConfig,
+  type DiscoveredRaceLink,
   type SourceAdapter,
   failedMetadata,
   fetchWithTimeout,
@@ -17,12 +20,60 @@ import {
 } from "./types.js";
 
 const BASE_URL = "https://runningmap.kr";
+const KNOWN_SOURCE_HOSTS = [
+  "gorunning.kr",
+  "www.gorunning.kr",
+  "gorunning.co.kr",
+  "www.gorunning.co.kr",
+  "kormarathon.com",
+  "www.kormarathon.com",
+  "emarathon.or.kr",
+  "www.emarathon.or.kr",
+  "e-marathon.co.kr",
+  "www.e-marathon.co.kr",
+  "runningmap.kr",
+  "www.runningmap.kr",
+  "runningmap.com",
+  "www.runningmap.com",
+  "maedal.com",
+  "www.maedal.com",
+  "m.kaaf.or.kr",
+  "kaaf.or.kr",
+  "www.kaaf.or.kr",
+  "marathon.me.kr",
+  "www.marathon.me.kr",
+  "marathonmoa.com",
+  "www.marathonmoa.com",
+  "marathonmate.store",
+  "www.marathonmate.store",
+] as const;
+const SOURCE_HOSTS = KNOWN_SOURCE_HOSTS;
+const AGGREGATOR_HOSTS = KNOWN_SOURCE_HOSTS;
+function ownedDetailUrl(rawHref: string): string | null {
+  return safeRunningMapDetailUrl(rawHref);
+}
+
+function discoverDetailLinks(
+  race: Race,
+  detailHtml: string,
+  sourcePageUrl: string,
+): readonly DiscoveredRaceLink[] {
+  return discoverRaceLinks({
+    race,
+    sourceId: "runningmap",
+    sourcePageUrl,
+    sourceHosts: SOURCE_HOSTS,
+    aggregatorHosts: AGGREGATOR_HOSTS,
+    html: detailHtml,
+    raceDetailContext: { present: true },
+  });
+}
 
 interface ParsedRace {
   readonly name: string;
   readonly eventDate: string;
   readonly venue: string;
-  readonly detailUrl: string;
+  readonly detailUrl: string | null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -55,8 +106,8 @@ function parseRunningMapHtml(html: string): ReadonlyArray<ParsedRace> {
         const location = isRecord(item.location) ? item.location : undefined;
         const name = typeof item.name === "string" ? item.name.trim() : "";
         const venue = typeof location?.name === "string" ? location.name : "미상";
-        const detailUrl = typeof entry.url === "string" ? entry.url : "";
-        if (name.length > 2 && eventDate !== null && detailUrl !== "") {
+        const detailUrl = typeof entry.url === "string" ? ownedDetailUrl(entry.url) : null;
+        if (name.length > 2 && eventDate !== null) {
           races.push({ name, eventDate, venue, detailUrl });
         }
       }
@@ -77,14 +128,14 @@ function parseRunningMapHtml(html: string): ReadonlyArray<ParsedRace> {
       const dateMatch = context.match(/(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})/);
       const venueMatch = context.match(/(?:장소|지역|위치)[^<]*?[:：]\s*([^<\n]{2,30})/i);
 
-      races.push({
-        name: text,
-        eventDate: dateMatch
-          ? `${dateMatch[1]}-${(dateMatch[2] ?? "").padStart(2, "0")}-${(dateMatch[3] ?? "").padStart(2, "0")}`
-          : "2025-01-01",
-        venue: venueMatch?.[1]?.trim() ?? "미상",
-        detailUrl: href.startsWith("http") ? href : `${BASE_URL}/${href.replace(/^\//, "")}`,
-      });
+      if (dateMatch !== null) {
+        races.push({
+          name: text,
+          eventDate: `${dateMatch[1]}-${(dateMatch[2] ?? "").padStart(2, "0")}-${(dateMatch[3] ?? "").padStart(2, "0")}`,
+          venue: venueMatch?.[1]?.trim() ?? "미상",
+          detailUrl: ownedDetailUrl(href),
+        });
+      }
     }
     match = linkPattern.exec(html);
   }
@@ -111,15 +162,17 @@ export const RunningMapAdapter: SourceAdapter = {
       const parsed = parseRunningMapHtml(homeHtml);
       const now = new Date().toISOString();
       const races: Race[] = [];
+      const discoveredLinks: DiscoveredRaceLink[] = [];
+      let remainingDetailBudget = config.detailBudget ?? 20;
 
       for (const p of parsed) {
-        races.push({
+        const race: Race = {
           name: p.name,
           eventDate: p.eventDate,
           registrationDeadline: null,
           venue: p.venue,
           courses: [],
-          applicationUrl: p.detailUrl,
+          applicationUrl: p.detailUrl ?? BASE_URL,
           notes: "RunningMap: supplementary source",
           sources: [id],
           verified: false,
@@ -127,11 +180,31 @@ export const RunningMapAdapter: SourceAdapter = {
           updatedAt: now,
           generatedAt: now,
           registrationStatus: computeRegistrationStatus(null, p.eventDate),
-        });
+        };
+        let links: readonly DiscoveredRaceLink[] = [];
+        if (remainingDetailBudget > 0 && p.detailUrl !== null) {
+          remainingDetailBudget -= 1;
+          try {
+            const detailHtml = config.fixtureDir
+              ? await readFixture(config.fixtureDir, detailFixtureName(p.detailUrl, BASE_URL))
+              : await fetchWithTimeout(p.detailUrl);
+            links = discoverDetailLinks(race, detailHtml, p.detailUrl);
+          } catch (error) {
+            if (!(error instanceof Error)) throw error;
+          }
+        }
+        const registrationLink =
+          links.find((link) => link.kind === "application") ??
+          links.find((link) => link.kind === "official-site");
+        races.push(
+          registrationLink === undefined ? race : { ...race, applicationUrl: registrationLink.url },
+        );
+        discoveredLinks.push(...links);
       }
 
       return {
         races,
+        discoveredLinks,
         metadata: successMetadata(
           id,
           races.length,
@@ -144,6 +217,7 @@ export const RunningMapAdapter: SourceAdapter = {
       const message = error instanceof Error ? error.message : String(error);
       return {
         races: [],
+        discoveredLinks: [],
         metadata: failedMetadata(id, true, `RunningMap failed: ${message}`),
       };
     }

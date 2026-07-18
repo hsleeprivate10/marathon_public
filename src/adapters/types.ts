@@ -28,12 +28,22 @@ export interface CollectConfig {
   readonly detailBudget: number | undefined;
 }
 
+export interface DiscoveredRaceLink {
+  readonly dedupKey: string;
+  readonly kind: "official-site" | "application";
+  readonly url: string;
+  readonly sourceId: string;
+  readonly sourcePageUrl: string;
+  readonly evidence: "explicit-label" | "structured-event" | "structured-organizer";
+}
+
 /**
  * Result of collecting from a single source adapter.
  */
 export interface AdapterResult {
   /** Collected (and possibly partial) race records */
   readonly races: ReadonlyArray<Race>;
+  readonly discoveredLinks: ReadonlyArray<DiscoveredRaceLink>;
   /** Source metadata for the collectionMetadata array */
   readonly metadata: SourceRecord;
 }

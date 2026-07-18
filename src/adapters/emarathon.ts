@@ -7,9 +7,12 @@
 import type { Course, Race } from "../contract.js";
 import { computeRegistrationStatus } from "../contract.js";
 import { canonicalCourses } from "../courses.js";
+import { discoverRaceLinks } from "../official-sites/discovery.js";
+import { detailFixtureName, safeEMarathonDetailUrl } from "./detail-source-url.js";
 import {
   type AdapterResult,
   type CollectConfig,
+  type DiscoveredRaceLink,
   type SourceAdapter,
   failedMetadata,
   fetchWithTimeout,
@@ -18,6 +21,54 @@ import {
 } from "./types.js";
 
 const BASE_URL = "https://emarathon.or.kr";
+const KNOWN_SOURCE_HOSTS = [
+  "gorunning.kr",
+  "www.gorunning.kr",
+  "gorunning.co.kr",
+  "www.gorunning.co.kr",
+  "kormarathon.com",
+  "www.kormarathon.com",
+  "emarathon.or.kr",
+  "www.emarathon.or.kr",
+  "e-marathon.co.kr",
+  "www.e-marathon.co.kr",
+  "runningmap.kr",
+  "www.runningmap.kr",
+  "runningmap.com",
+  "www.runningmap.com",
+  "maedal.com",
+  "www.maedal.com",
+  "m.kaaf.or.kr",
+  "kaaf.or.kr",
+  "www.kaaf.or.kr",
+  "marathon.me.kr",
+  "www.marathon.me.kr",
+  "marathonmoa.com",
+  "www.marathonmoa.com",
+  "marathonmate.store",
+  "www.marathonmate.store",
+] as const;
+const SOURCE_HOSTS = KNOWN_SOURCE_HOSTS;
+const AGGREGATOR_HOSTS = KNOWN_SOURCE_HOSTS;
+function ownedDetailUrl(rawHref: string): string | null {
+  return safeEMarathonDetailUrl(rawHref);
+}
+
+function discoverDetailLinks(
+  race: Race,
+  detailHtml: string,
+  sourcePageUrl: string,
+): readonly DiscoveredRaceLink[] {
+  return discoverRaceLinks({
+    race,
+    sourceId: "emarathon",
+    sourcePageUrl,
+    sourceHosts: SOURCE_HOSTS,
+    aggregatorHosts: AGGREGATOR_HOSTS,
+    html: detailHtml,
+    raceDetailContext: { present: true },
+  });
+}
 
 interface ParsedRace {
   readonly name: string;
@@ -25,7 +76,7 @@ interface ParsedRace {
   readonly venue: string;
   readonly courses: ReadonlyArray<Course>;
   readonly registrationDeadline: string | null;
-  readonly detailUrl: string;
+  readonly detailUrl: string | null;
 }
 
 function parseEMarathonHtml(html: string): ReadonlyArray<ParsedRace> {
@@ -55,10 +106,10 @@ function parseEMarathonHtml(html: string): ReadonlyArray<ParsedRace> {
     const priceMatch = inner.match(/(\d{1,3}(?:,\d{3})+)\s*원/);
 
     const rawName = titleMatch?.[1] ?? linkMatch?.[2];
-    if (rawName) {
+    if (rawName && dateMatch) {
       const detailUrl = linkMatch?.[1]
-        ? new URL(linkMatch[1].replaceAll("&amp;", "&"), BASE_URL).toString()
-        : BASE_URL;
+        ? ownedDetailUrl(linkMatch[1].replaceAll("&amp;", "&"))
+        : null;
       const name = rawName
         .replace(/<!--[\s\S]*?-->/g, "")
         .replace(/<[^>]*>/g, "")
@@ -67,9 +118,7 @@ function parseEMarathonHtml(html: string): ReadonlyArray<ParsedRace> {
         .replace(/^(?:텍스트|파일첨부)\s*/, "")
         .replace(/^\[(?:full|half|10k|5k)\]\s*/i, "")
         .replace(/링크\s*$/, "");
-      const eventDate = dateMatch
-        ? `${dateMatch[1]}-${(dateMatch[2] ?? "").padStart(2, "0")}-${(dateMatch[3] ?? "").padStart(2, "0")}`
-        : "2025-01-01";
+      const eventDate = `${dateMatch[1]}-${(dateMatch[2] ?? "").padStart(2, "0")}-${(dateMatch[3] ?? "").padStart(2, "0")}`;
       const venue = venueMatch?.[1]?.trim() ?? "미상";
       const price = priceMatch?.[1] ? Number.parseInt(priceMatch[1].replace(/,/g, ""), 10) : null;
       const courses = canonicalCourses(
@@ -99,7 +148,7 @@ export const EMarathonAdapter: SourceAdapter = {
   id: "emarathon",
   name: "e-Marathon",
   baseUrl: BASE_URL,
-  allowedPaths: ["/bbs/board.php"],
+  allowedPaths: ["/bbs/board.php", "/race/view/"],
 
   async collect(config: CollectConfig): Promise<AdapterResult> {
     const id = this.id;
@@ -116,9 +165,11 @@ export const EMarathonAdapter: SourceAdapter = {
       const parsed = parseEMarathonHtml(listHtml);
       const now = new Date().toISOString();
       const races: Race[] = [];
+      const discoveredLinks: DiscoveredRaceLink[] = [];
+      let remainingDetailBudget = config.detailBudget ?? 20;
 
       for (const p of parsed) {
-        races.push({
+        const race: Race = {
           name: p.name,
           eventDate: p.eventDate,
           registrationDeadline: p.registrationDeadline,
@@ -128,18 +179,38 @@ export const EMarathonAdapter: SourceAdapter = {
             price: c.price,
             priceSource: c.priceSource,
           })),
-          applicationUrl: p.detailUrl,
+          applicationUrl: p.detailUrl ?? BASE_URL,
           sources: [id],
           verified: true,
           lastVerified: now,
           updatedAt: now,
           generatedAt: now,
           registrationStatus: computeRegistrationStatus(p.registrationDeadline, p.eventDate),
-        });
+        };
+        let links: readonly DiscoveredRaceLink[] = [];
+        if (remainingDetailBudget > 0 && p.detailUrl !== null) {
+          remainingDetailBudget -= 1;
+          try {
+            const detailHtml = config.fixtureDir
+              ? await readFixture(config.fixtureDir, detailFixtureName(p.detailUrl, BASE_URL))
+              : await fetchWithTimeout(p.detailUrl);
+            links = discoverDetailLinks(race, detailHtml, p.detailUrl);
+          } catch (error) {
+            if (!(error instanceof Error)) throw error;
+          }
+        }
+        const registrationLink =
+          links.find((link) => link.kind === "application") ??
+          links.find((link) => link.kind === "official-site");
+        races.push(
+          registrationLink === undefined ? race : { ...race, applicationUrl: registrationLink.url },
+        );
+        discoveredLinks.push(...links);
       }
 
       return {
         races,
+        discoveredLinks,
         metadata: successMetadata(
           id,
           races.length,
@@ -150,6 +221,7 @@ export const EMarathonAdapter: SourceAdapter = {
       const message = error instanceof Error ? error.message : String(error);
       return {
         races: [],
+        discoveredLinks: [],
         metadata: failedMetadata(id, true, `e-Marathon failed: ${message}`),
       };
     }

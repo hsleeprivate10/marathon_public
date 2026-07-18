@@ -8,9 +8,12 @@
 import type { Race } from "../contract.js";
 import { computeRegistrationStatus } from "../contract.js";
 import { canonicalCourses } from "../courses.js";
+import { discoverRaceLinks } from "../official-sites/discovery.js";
+import { detailFixtureName, safeKorMarathonDetailUrl } from "./detail-source-url.js";
 import {
   type AdapterResult,
   type CollectConfig,
+  type DiscoveredRaceLink,
   type SourceAdapter,
   failedMetadata,
   fetchWithTimeout,
@@ -19,6 +22,51 @@ import {
 } from "./types.js";
 
 const BASE_URL = "https://www.kormarathon.com";
+const KNOWN_SOURCE_HOSTS = [
+  "gorunning.kr",
+  "www.gorunning.kr",
+  "gorunning.co.kr",
+  "www.gorunning.co.kr",
+  "kormarathon.com",
+  "www.kormarathon.com",
+  "emarathon.or.kr",
+  "www.emarathon.or.kr",
+  "e-marathon.co.kr",
+  "www.e-marathon.co.kr",
+  "runningmap.kr",
+  "www.runningmap.kr",
+  "runningmap.com",
+  "www.runningmap.com",
+  "maedal.com",
+  "www.maedal.com",
+  "m.kaaf.or.kr",
+  "kaaf.or.kr",
+  "www.kaaf.or.kr",
+  "marathon.me.kr",
+  "www.marathon.me.kr",
+  "marathonmoa.com",
+  "www.marathonmoa.com",
+  "marathonmate.store",
+  "www.marathonmate.store",
+] as const;
+const SOURCE_HOSTS = KNOWN_SOURCE_HOSTS;
+const AGGREGATOR_HOSTS = KNOWN_SOURCE_HOSTS;
+
+function discoverDetailLinks(
+  race: Race,
+  detailHtml: string,
+  sourcePageUrl: string,
+): readonly DiscoveredRaceLink[] {
+  return discoverRaceLinks({
+    race,
+    sourceId: "kormarathon",
+    sourcePageUrl,
+    sourceHosts: SOURCE_HOSTS,
+    aggregatorHosts: AGGREGATOR_HOSTS,
+    html: detailHtml,
+    raceDetailContext: { present: true },
+  });
+}
 
 interface ParsedRace {
   readonly name: string;
@@ -26,7 +74,7 @@ interface ParsedRace {
   readonly venue: string;
   readonly registrationDeadline: string | null;
   readonly courses: ReadonlyArray<{ readonly name: string; readonly price: number | null }>;
-  readonly detailUrl: string;
+  readonly detailUrl: string | null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -53,17 +101,23 @@ function parseKorMarathonHtml(html: string): ReadonlyArray<ParsedRace> {
         const name = typeof data.name === "string" ? data.name : "";
         if (name && name.length > 2) {
           const startDate = typeof data.startDate === "string" ? data.startDate : "";
+          const eventDate = normalizeDate(startDate);
           const location = isRecord(data.location) ? data.location : undefined;
           const venue = typeof location?.name === "string" ? location.name : "미상";
 
-          races.push({
-            name,
-            eventDate: normalizeDate(startDate),
-            venue,
-            registrationDeadline: null,
-            courses: [],
-            detailUrl: `${BASE_URL}/ko/race/${typeof data.identifier === "string" ? data.identifier : ""}`,
-          });
+          if (eventDate !== null) {
+            races.push({
+              name,
+              eventDate,
+              venue,
+              registrationDeadline: null,
+              courses: [],
+              detailUrl:
+                typeof data.identifier === "string"
+                  ? safeKorMarathonDetailUrl(`/ko/race/${data.identifier}`)
+                  : null,
+            });
+          }
         }
       }
     }
@@ -90,7 +144,8 @@ function parseKorMarathonHtml(html: string): ReadonlyArray<ParsedRace> {
         venue: venueMatch?.[1] ?? "미상",
         registrationDeadline: null,
         courses: [],
-        detailUrl: `${BASE_URL}/ko/race/${idMatch?.[1] ?? ""}`,
+        detailUrl:
+          idMatch?.[1] === undefined ? null : safeKorMarathonDetailUrl(`/ko/race/${idMatch[1]}`),
       });
     }
     rscMatch = rscPattern.exec(html);
@@ -110,7 +165,7 @@ function parseKorMarathonHtml(html: string): ReadonlyArray<ParsedRace> {
         venue: "미상",
         registrationDeadline: null,
         courses: [],
-        detailUrl: BASE_URL,
+        detailUrl: null,
       });
     }
     cardMatch = cardPattern.exec(html);
@@ -119,20 +174,20 @@ function parseKorMarathonHtml(html: string): ReadonlyArray<ParsedRace> {
   return races;
 }
 
-function normalizeDate(raw: string): string {
-  if (!raw) return "2025-01-01";
+function normalizeDate(raw: string): string | null {
+  if (!raw) return null;
   const m = raw.match(/(\d{4})-(\d{2})-(\d{2})/);
   if (m) return `${m[1]}-${m[2]}-${m[3]}`;
   const m2 = raw.match(/(\d{4})[./](\d{1,2})[./](\d{1,2})/);
   if (m2) return `${m2[1]}-${(m2[2] ?? "").padStart(2, "0")}-${(m2[3] ?? "").padStart(2, "0")}`;
-  return "2025-01-01";
+  return null;
 }
 
 export const KorMarathonAdapter: SourceAdapter = {
   id: "kormarathon",
   name: "KorMarathon",
   baseUrl: BASE_URL,
-  allowedPaths: ["/ko/marathon-calendar", "/ko/races/"],
+  allowedPaths: ["/ko/marathon-calendar", "/ko/races/", "/ko/race/"],
 
   async collect(config: CollectConfig): Promise<AdapterResult> {
     const id = this.id;
@@ -148,6 +203,8 @@ export const KorMarathonAdapter: SourceAdapter = {
       const now = new Date().toISOString();
       const seen = new Set<string>();
       const races: Race[] = [];
+      const discoveredLinks: DiscoveredRaceLink[] = [];
+      let remainingDetailBudget = config.detailBudget ?? 20;
 
       for (const p of parsed) {
         const key = `${p.name}|${p.eventDate}`;
@@ -158,24 +215,44 @@ export const KorMarathonAdapter: SourceAdapter = {
           p.courses.map((course) => ({ ...course, priceSource: "structured" as const })),
         );
 
-        races.push({
+        const race: Race = {
           name: p.name,
           eventDate: p.eventDate,
           registrationDeadline: p.registrationDeadline,
           venue: p.venue,
           courses,
-          applicationUrl: p.detailUrl,
+          applicationUrl: p.detailUrl ?? BASE_URL,
           sources: [id],
           verified: true,
           lastVerified: now,
           updatedAt: now,
           generatedAt: now,
           registrationStatus: computeRegistrationStatus(p.registrationDeadline, p.eventDate),
-        });
+        };
+        let links: readonly DiscoveredRaceLink[] = [];
+        if (remainingDetailBudget > 0 && p.detailUrl !== null) {
+          remainingDetailBudget -= 1;
+          try {
+            const detailHtml = config.fixtureDir
+              ? await readFixture(config.fixtureDir, detailFixtureName(p.detailUrl, BASE_URL))
+              : await fetchWithTimeout(p.detailUrl);
+            links = discoverDetailLinks(race, detailHtml, p.detailUrl);
+          } catch (error) {
+            if (!(error instanceof Error)) throw error;
+          }
+        }
+        const registrationLink =
+          links.find((link) => link.kind === "application") ??
+          links.find((link) => link.kind === "official-site");
+        races.push(
+          registrationLink === undefined ? race : { ...race, applicationUrl: registrationLink.url },
+        );
+        discoveredLinks.push(...links);
       }
 
       return {
         races,
+        discoveredLinks,
         metadata: successMetadata(
           id,
           races.length,
@@ -186,6 +263,7 @@ export const KorMarathonAdapter: SourceAdapter = {
       const message = error instanceof Error ? error.message : String(error);
       return {
         races: [],
+        discoveredLinks: [],
         metadata: failedMetadata(id, true, `KorMarathon failed: ${message}`),
       };
     }
