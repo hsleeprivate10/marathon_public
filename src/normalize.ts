@@ -27,6 +27,19 @@ const regionPatterns = [
   ["제주", /제주(?:특별자치도)?/],
 ] as const;
 
+const aggregatorHosts = new Set([
+  "emarathon.or.kr",
+  "gorunning.kr",
+  "marathon.me.kr",
+  "marathonmate.store",
+  "runningmap.kr",
+  "www.emarathon.or.kr",
+  "www.gorunning.kr",
+  "www.marathon.me.kr",
+  "www.marathonmate.store",
+  "www.runningmap.kr",
+]);
+
 // ---------------------------------------------------------------------------
 // Korean name normalization
 // ---------------------------------------------------------------------------
@@ -119,7 +132,7 @@ export function mergeRaces(existing: Race, incoming: Race): Race {
     venue: existing.venue !== "미상" ? existing.venue : incoming.venue,
     region: existing.region ?? incoming.region,
     courses: existingCourses,
-    applicationUrl: existing.applicationUrl,
+    applicationUrl: preferredApplicationUrl(existing.applicationUrl, incoming.applicationUrl),
     notes: mergeNotes(existing.notes, incoming.notes),
     urlScheme: existing.urlScheme ?? incoming.urlScheme,
     sources: mergedSources,
@@ -129,6 +142,12 @@ export function mergeRaces(existing: Race, incoming: Race): Race {
     generatedAt: now,
     registrationStatus: existing.registrationStatus,
   };
+}
+
+function preferredApplicationUrl(existing: string, incoming: string): string {
+  const existingIsAggregator = aggregatorHosts.has(new URL(existing).hostname);
+  const incomingIsAggregator = aggregatorHosts.has(new URL(incoming).hostname);
+  return existingIsAggregator && !incomingIsAggregator ? incoming : existing;
 }
 
 function normalizeCourseName(name: string): string {

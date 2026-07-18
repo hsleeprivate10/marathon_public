@@ -175,6 +175,19 @@ describe("mergeRaces", () => {
     const merged = mergeRaces(existing, incoming);
     expect(merged.courses[0]?.price).toBe(70000);
   });
+
+  it("replaces an aggregator detail URL with a registration URL", () => {
+    const existing = makeRace({
+      applicationUrl: "https://gorunning.kr/races/123/example/",
+    });
+    const incoming = makeRace({
+      applicationUrl: "https://registration.example.com/apply",
+    });
+
+    expect(mergeRaces(existing, incoming).applicationUrl).toBe(
+      "https://registration.example.com/apply",
+    );
+  });
 });
 
 describe("deduplicateRaces", () => {
