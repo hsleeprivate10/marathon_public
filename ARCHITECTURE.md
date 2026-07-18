@@ -9,7 +9,9 @@ This project serves a read-only domestic marathon calendar without an always-on 
 ```text
 8 public schedule sites
   -> source adapters
+  -> races + internal race-bound link candidates
   -> normalization and conservative deduplication
+  -> bounded official-page identity check and enrichment
   -> public/races.json
   -> Vite static build (dist/)
   -> GitHub Pages artifact deployment
@@ -27,7 +29,9 @@ This project serves a read-only domestic marathon calendar without an always-on 
 | `src/adapters/` | One independently failing public-source adapter per site |
 | `src/adapters/types.ts` | Request policy, fixture loading, adapter result types |
 | `src/normalize.ts` | Name normalization, merge, sort, conservative duplicate key |
-| `src/orchestrator.ts` | Sequential collection, metadata aggregation, JSON write |
+| `src/official-sites/` | Explicit-link discovery, safe fetch policy, identity checks, parsing, and field merge |
+| `src/orchestrator.ts` | Sequential collection, deduplication, bounded official enrichment, metadata aggregation, JSON write |
+| `src/filters.ts` | Exact AND filtering independent of the displayed month |
 | `src/collect.ts` | CLI entry point for live or fixture collection |
 | `src/validate.ts` | Zod validation of generated JSON |
 | `src/main.ts` | Static browser application |
@@ -40,9 +44,17 @@ Top-level `CollectionOutput` contains:
 
 - `generatedAt`: ISO collection timestamp.
 - `races`: normalized, date-sorted race records.
-- `collectionMetadata`: one result for each source with `attempted`, `succeeded`, `recordCount`, and a human-readable `message`.
+- `collectionMetadata`: one result for each of the eight source adapters plus `official-sites`, with `attempted`, `succeeded`, `recordCount`, and a human-readable `message`.
 
-Every race has the user-required name, event date, nullable registration deadline, venue, nullable per-course price, application URL, notes, URL scheme when known, source IDs, verification information, and registration status. Courses are limited to explicitly observed `풀`, `하프`, `10K`, and `5K` values. A source without a supported published course contributes an empty course list; a known course without a published fee keeps a `null` price. Unknown public information is never guessed.
+Every race has the user-required name, event date, nullable registration deadline, venue, nullable per-course price, application URL, optional verified official-site URL, notes, URL scheme when known, source IDs, verification information, and registration status. Courses are limited to explicitly observed `풀`, `하프`, `10K`, and `5K` values. A source without a supported published course contributes an empty course list; a known course without a published fee keeps a `null` price. Unknown public information is never guessed.
+
+Adapter `discoveredLinks` are internal provenance records, not public race fields. They retain the race deduplication key, link kind, source adapter, source page, and discovery evidence. After race deduplication, candidates from every contributing source are grouped by that key. All official and application candidates share the public non-payment HTTP(S) publication policy. It rejects credentials, localhost/`.local`, non-public IP literals, dedicated `pay`/`payment`/`payments`/`checkout`/`billing` host labels, and payment/checkout/billing/purchase path segments while preserving non-dedicated labels such as `payments-marathon`. Allowed application candidates may replace `applicationUrl`, but are never fetched as official pages.
+
+Official candidates are limited to upcoming races, ordered by event date and Korean name, and attempted until one page passes identity checks or the global 40-loader-invocation budget is exhausted. `fetched` counts candidate loader invocations, not accepted pages, published races, or raw HTTP transports. In live mode one invocation can make up to three separately validated transport requests: the initial request and at most two redirects. `official-sites.recordCount` is the accepted enrichment count; its message reports `candidate`, `fetched`, `accepted`, `rejected`, and `budgetSkipped`. Source adapter metadata continues to describe source extraction separately.
+
+For `official-sites`, `succeeded` means the enrichment stage completed. Individual candidate load, parse, and identity rejections increment `rejected` in the message without making the stage unsuccessful. Fixture-index initialization or other stage setup/execution failures set `succeeded: false`. This differs from the eight adapter records, whose success describes source extraction.
+
+An accepted official page cannot replace the canonical race name or event date. Before any official page load, an explicit application candidate that passes the shared public non-payment URL policy may already replace `applicationUrl`. After identity acceptance, explicit official venue and registration deadline take precedence; official canonical courses are merged; a non-null official price replaces a lower-authority price for the same course; a registration link that passes the application policy may replace `applicationUrl`; the final page URL must pass the stricter official-page policy before becoming `officialSiteUrl`; and verification state, verification/modification timestamps, and registration status are refreshed. Other absent official-page fields preserve the race values current at that point.
 
 ## Source Roles
 
@@ -66,4 +78,10 @@ Adapters must fail independently. A source outage produces metadata and a UI war
 - The deploy job alone receives `pages: write` and `id-token: write`.
 - Generated data is never pushed back to the repository.
 - Public collection is limited to public schedule/detail pages; no authentication, CAPTCHA, administrative route, or access-control bypass is allowed.
+- Application and official candidates share the public non-payment and private-basename policy, but registration destinations remain valid for application publication. Official-page candidates additionally reject exact `register`/`registration`/`apply`/`application`/`entry`/`signup`/`sign-up`/`join`/`enroll` basenames with or without a server extension; case and backslash variants are equivalent, while longer benign basenames remain valid. This official policy is enforced at discovery, enrichment, live initial/redirect resolution, merge, and schema publication. In live mode, hostnames and every redirect are resolved and rechecked before requesting; localhost, `.local`, dedicated payment hosts/paths, private, loopback, link-local, multicast, and otherwise blocked addresses are rejected. Manually mislabeled official registration candidates are rejected before loader invocation. Each live request is pinned to one validated address to prevent DNS rebinding.
+- Live official transport sends only `Accept` and the descriptive User-Agent, follows at most two separately validated redirects, does not retry, accepts HTML/XHTML/plain text only, stops at 1 MiB, and times out. Registration/payment links are not followed.
+- Fixture mode does not use the remote URL/DNS transport. Exact URL mappings select trusted local test files, the fixture loader confines mapped paths to its fixture directory, and no network request is made.
+- Official collection does not execute page JavaScript and therefore does not support browser-render-only content.
 - Course values are never inferred from race names, page-wide navigation text, or unrelated distance fragments.
+
+The browser applies region, course, and registration-status filters as exact AND conditions. Empty values are wildcards. Filtering and reset re-render the currently displayed month; only previous/next controls change the month. Race links prefer `officialSiteUrl` and fall back to `applicationUrl`.
