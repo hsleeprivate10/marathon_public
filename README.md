@@ -1,6 +1,6 @@
 # Marathon Calendar
 
-GitHub Actions가 국내 마라톤 공개 일정을 수집하고, 정규화한 `races.json`과 월별 캘린더를 GitHub Pages에 배포하는 정적 사이트입니다. 지속 실행 서버, 데이터베이스, Google 계정 자격 증명은 사용하지 않습니다.
+GitHub Actions가 국내 마라톤 공개 일정을 수집하고, 정규화한 `races.json`, 월별 홈페이지, `#/calendar` 캘린더를 GitHub Pages에 배포하는 정적 사이트입니다. 지속 실행 서버, 데이터베이스, Google 계정 자격 증명은 사용하지 않습니다.
 
 ## 데이터 흐름
 
@@ -41,11 +41,13 @@ GitHub Actions가 국내 마라톤 공개 일정을 수집하고, 정규화한 `
 
 `official-sites` 메타데이터의 `recordCount`는 공식 페이지에서 받아들인 보강 건수입니다. `message`의 `candidate`, `fetched`, `accepted`, `rejected`, `budgetSkipped`는 각각 검토 대상 후보, 후보 로더 호출, 신원 검증 통과, 일반 후보 로드·파싱·신원 거절, 예산으로 건너뛴 후보 수입니다. 일반 후보 거절은 `succeeded`를 `false`로 만들지 않습니다. `succeeded`는 보강 단계 자체가 완료됐는지를 나타내며, fixture 인덱스 초기화나 단계 설정·실행 실패 때만 `false`가 될 수 있습니다. 이는 8개 어댑터의 추출 건수를 뜻하지 않습니다.
 
+홈페이지와 캘린더는 운영체제의 `prefers-color-scheme: dark` 설정을 따릅니다. 다크 모드는 네이비 계열 캔버스·상승 표면·테두리·썸네일 토큰을 함께 전환하며, 본문·대회 링크·필터 컨트롤은 WCAG AA 명암비를 유지합니다.
+
 공식 페이지에 없는 필드는 현재 대회 값을 유지합니다. 다만 공식 페이지 로드 전에도 공용 비결제 HTTP(S) 정책을 통과한 명시적 참가 신청 후보가 `applicationUrl`을 갱신할 수 있습니다. 신원 검증을 통과한 공식 페이지는 명시된 장소·마감일·코스·가격·신청 링크를 우선순위 규칙에 따라 합치고, 공식 페이지 정책을 통과한 최종 페이지를 `officialSiteUrl`로 기록하며 검증 상태, 검증·수정 시각, 접수 상태를 갱신합니다. 대회명과 개최일은 바꾸지 않습니다. 공용 정책은 자격 증명, localhost·`.local`, 비공개·루프백·링크 로컬 IP 리터럴, 전용 결제 호스트와 결제·체크아웃·청구·구매 경로를 거부합니다. 공식 페이지 정책은 여기에 더해 확장자 유무와 관계없이 정확한 신청 목적지(`register`, `apply`, `entry`, `signup`, `join` 등)를 거부하지만, 해당 URL은 `applicationUrl`로 계속 게시할 수 있습니다.
 
 DNS 확인, 공개 IP 고정, 리디렉션 재검증은 라이브 원격 공식 페이지 로더에만 적용됩니다. Fixture 모드는 로컬 테스트 파일을 신뢰하되 매핑 대상이 `tests/fixtures/official-sites/` 밖으로 나가지 못하게 제한하며 네트워크를 사용하지 않습니다.
 
-지역·코스·접수 상태 필터는 빈 값을 전체로 취급하고 선택된 조건을 정확한 AND로 적용합니다. 필터 변경과 초기화는 현재 표시 월을 바꾸지 않으며, 월 이동은 이전/다음 버튼으로만 수행합니다. 대회 카드는 검증된 `officialSiteUrl`을 우선하고 없으면 `applicationUrl`을 사용합니다.
+홈페이지의 검색·지역·코스·접수 상태·초기화와 즐겨찾기는 향후 승인을 위한 읽기 전용/비활성 미리보기이며 저장하거나 목록을 바꾸지 않습니다. 홈페이지의 연도·월 선택기는 처음에 모든 월 구간을 표시합니다. 연도 선택은 해당 연도만, 월 선택은 선택 연도 안의 같은 월 또는 `전체 연도`에서 여러 연도의 같은 월을 표시하며, 연도를 바꾸면 월은 `전체 월`로 돌아갑니다. 숨긴 월 구간도 DOM에 유지하고 구체적인 연도나 월을 선택하면 첫 결과 제목으로 초점을 옮깁니다. 데이터가 없으면 두 선택기를 정직한 빈 옵션과 함께 비활성화하며, 데이터 갱신 시각은 두 선택기 아래에 표시합니다. `#/calendar`는 홈페이지와 같은 네이비·오렌지 브랜드 헤더와 흰색 상승 표면을 사용하며, 항상 보이는 `메인으로 돌아가기` 링크로 기본 홈페이지에 돌아갑니다. 지역·코스·접수 상태 필터는 빈 값을 전체로 취급하고 선택 조건을 정확한 AND로 적용하며, 초기화는 표시 월을 보존합니다. 대회 행 링크는 `officialSiteUrl` 유무와 관계없이 스키마 검증된 `applicationUrl`을 사용합니다.
 
 ## 로컬 실행
 
@@ -62,6 +64,7 @@ bun run typecheck
 bun run lint
 bun test
 bun run test
+bun run test:e2e
 
 # 정적 사이트 미리보기
 bun run preview
@@ -74,7 +77,7 @@ bun run preview
 1. 이 프로젝트를 GitHub 저장소의 기본 브랜치에 올립니다.
 2. **Settings → Pages → Build and deployment → Source**에서 **GitHub Actions**를 선택합니다.
 3. **Actions → Collect and deploy marathon calendar → Run workflow**로 첫 배포를 수동 실행합니다.
-4. 성공 후 Actions 출력의 Pages URL을 열어 달력과 `races.json`을 확인합니다.
+4. 성공 후 Actions 출력의 Pages URL을 열어 홈페이지, `#/calendar`, `races.json`을 확인합니다. 글꼴 CSS·WOFF2·favicon은 모두 상대 URL이므로 저장소 하위 Pages 경로에서 같은 프로젝트 범위로 로드됩니다.
 
 원격 Pages의 OIDC 배포와 예약 실행은 GitHub에서만 확인할 수 있습니다. 워크플로는 `contents: read`만 사용하며, 배포 작업에만 `pages: write`와 `id-token: write`를 부여합니다.
 

@@ -15,7 +15,7 @@ This project serves a read-only domestic marathon calendar without an always-on 
   -> public/races.json
   -> Vite static build (dist/)
   -> GitHub Pages artifact deployment
-  -> browser calendar and filters
+  -> browser homepage and #/calendar route
 ```
 
 `races.json` is an artifact of each deployment. It is intentionally ignored by Git and is not a historical database.
@@ -34,8 +34,19 @@ This project serves a read-only domestic marathon calendar without an always-on 
 | `src/filters.ts` | Exact AND filtering independent of the displayed month |
 | `src/collect.ts` | CLI entry point for live or fixture collection |
 | `src/validate.ts` | Zod validation of generated JSON |
-| `src/main.ts` | Static browser application |
-| `src/style.css` | Token-based responsive calendar styling |
+| `src/main.ts` | Validated-data loading and hash-route coordination |
+| `src/page-model.ts` | `home`/`calendar` hash parsing and chronological month grouping |
+| `src/home-page.ts` | Semantic homepage composition and month sections |
+| `src/home-race-row.ts`, `src/home-art.ts` | Application-linked race rows and deterministic inline SVG art |
+| `src/home-menu.ts`, `src/home-month-selector.ts` | Mobile menu and semantic year/month selector DOM behavior |
+| `src/home-race-selection.ts` | Pure year/month option derivation and month-section selection |
+| `src/calendar-page.ts`, `src/calendar-header.ts`, `src/calendar-grid.ts` | Calendar coordination, shared-brand header/hero, active filters, and responsive month grid |
+| `src/race-link.ts` | Race-row destination policy: validated `applicationUrl` |
+| `src/source-labels.ts` | Public Korean labels for failed collection-source IDs |
+| `src/style.css`, `src/shared-brand-tokens.css` | Global light/dark semantic foundations and shared homepage/calendar brand tokens |
+| `src/calendar*.css` | Calendar shell, controls, grid, and responsive styling |
+| `src/home*.css` | Homepage tokens, layout, controls, rows, and responsive styling |
+| `public/fonts/` | Project-relative Noto Sans KR WOFF2, OFL license, and font stylesheet |
 | `.github/workflows/deploy.yml` | Scheduled build and artifact Pages deployment |
 
 ## Data Contract
@@ -84,4 +95,6 @@ Adapters must fail independently. A source outage produces metadata and a UI war
 - Official collection does not execute page JavaScript and therefore does not support browser-render-only content.
 - Course values are never inferred from race names, page-wide navigation text, or unrelated distance fragments.
 
-The browser applies region, course, and registration-status filters as exact AND conditions. Empty values are wildcards. Filtering and reset re-render the currently displayed month; only previous/next controls change the month. Race links prefer `officialSiteUrl` and fall back to `applicationUrl`.
+The default browser route is the homepage; `#/calendar` is the calendar and remains compatible with static GitHub Pages hosting. Homepage search, region/course/status/reset, and favorite controls are visible disabled/read-only previews. Homepage year/month selects retain every month section in the DOM: year limits sections to that year, month limits by month number within the selected year or across all years, and changing year resets month. A specific year or month focuses the first visible heading; empty data disables both selectors with honest options. Calendar filters remain active exact-AND controls; empty values are wildcards, filtering/reset preserve the displayed month, and only previous/next change it. `raceHref()` intentionally returns the schema-validated `applicationUrl`, including when `officialSiteUrl` is available, so race rows lead to the tested application destination.
+
+Shared brand surfaces respond to `prefers-color-scheme` without changing routing or data. Base semantic dark values live in `style.css`; homepage/calendar-specific canvas, filters, borders, headings, links, thumbnails, and elevation live in `shared-brand-tokens.css`. The split prevents light surfaces from inheriting dark global text while retaining one token source per role.
