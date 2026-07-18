@@ -20,6 +20,6 @@
     "outDir": "dist",
     "types": ["bun-types"]
   },
-  "include": ["src/**/*.ts", "tests/**/*.ts"],
+  "include": ["src/**/*.ts", "tests/**/*.ts", "e2e/**/*.ts", "playwright.config.ts"],
   "exclude": ["node_modules", "dist", "public"]
 }
