@@ -1,0 +1,81 @@
+.calendar-page .result-count {
+  margin: var(--space-4) 0;
+  color: var(--filter-text);
+  font-size: 14px;
+}
+
+.calendar-page .calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  overflow: hidden;
+  border: 1px solid var(--row-border);
+  border-radius: var(--radius-media);
+}
+
+.calendar-page .weekday {
+  padding: var(--space-2);
+  background: var(--homepage-canvas);
+  color: var(--brand-link);
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.calendar-page .day-cell {
+  min-height: 130px;
+  padding: var(--space-2);
+  border-top: 1px solid var(--row-border);
+  border-right: 1px solid var(--row-border);
+  background: var(--filter-surface);
+}
+
+.calendar-page .day-cell:nth-child(7n) {
+  border-right: 0;
+}
+
+.calendar-page .day-number {
+  color: var(--filter-text);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.calendar-page .race {
+  display: grid;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border-left: 3px solid var(--quiet);
+  border-radius: 0 var(--space-1) var(--space-1) 0;
+  background: var(--homepage-canvas);
+  color: inherit;
+  text-decoration: none;
+  transition: background 150ms ease-out, transform 150ms ease-out;
+}
+
+.calendar-page .race:hover {
+  background: var(--thumbnail-sky);
+  transform: translateY(-1px);
+}
+
+.calendar-page .race strong {
+  font-size: 13px;
+  line-height: 1.25;
+}
+
+.calendar-page .race span {
+  color: var(--filter-text);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.calendar-page .status-open {
+  border-color: var(--accent);
+}
+
+.calendar-page .status-closing-soon {
+  border-color: var(--warning);
+}
+
+.calendar-page .status-closed {
+  border-color: var(--quiet);
+}
