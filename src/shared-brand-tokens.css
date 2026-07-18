@@ -1,0 +1,68 @@
+:root {
+  --hero-navy: #0b3a67;
+  --hero-navy-deep: #072b50;
+  --hero-scrim: linear-gradient(
+    90deg,
+    rgba(7, 43, 80, 0.98) 0%,
+    rgba(7, 43, 80, 0.82) 44%,
+    rgba(7, 43, 80, 0.18) 76%,
+    rgba(7, 43, 80, 0) 100%
+  );
+  --hero-text: #ffffff;
+  --hero-text-muted: #d8e5ef;
+  --hero-control-border: rgba(255, 255, 255, 0.42);
+  --hero-control-surface: rgba(255, 255, 255, 0.12);
+  --hero-art-shadow: 0 16px 24px rgba(7, 43, 80, 0.36);
+  --cta-orange: #c2410c;
+  --cta-orange-hover: #8f2708;
+  --cta-orange-active: #762006;
+  --cta-text: #ffffff;
+  --homepage-canvas: #f2f5f7;
+  --filter-surface: #ffffff;
+  --filter-border: #dce3e8;
+  --filter-text: #3f4a53;
+  --filter-selected: #123f70;
+  --filter-selected-text: #ffffff;
+  --brand-heading: #072b50;
+  --brand-link: #0b3a67;
+  --row-border: #e3e8ec;
+  --row-shadow: 0 8px 22px rgba(17, 43, 67, 0.08);
+  --thumbnail-sky: #dceaf3;
+  --thumbnail-sky-alt: #e7e1f2;
+  --thumbnail-sky-warm: #f2e2d5;
+  --thumbnail-city: #0b3a67;
+  --thumbnail-track: #c2410c;
+  --thumbnail-date-surface: rgba(7, 43, 80, 0.9);
+  --homepage-content-max: 1200px;
+  --homepage-gutter: clamp(16px, 5vw, 56px);
+  --filter-overlap: 28px;
+  --control-height: 44px;
+  --cta-padding-inline: 24px;
+  --radius-pill: 999px;
+  --radius-card: 12px;
+  --radius-media: 9px;
+  --race-row-gap: 16px;
+  --race-row-padding: 14px;
+  --race-thumbnail-ratio: 4 / 3;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --homepage-canvas: #101b27;
+    --filter-surface: #182838;
+    --filter-border: #38506a;
+    --filter-text: #e6edf3;
+    --filter-selected: #285b88;
+    --filter-selected-text: #ffffff;
+    --brand-heading: #e6edf3;
+    --brand-link: #8fc4ed;
+    --row-border: #38506a;
+    --row-shadow: 0 12px 28px rgba(0, 0, 0, 0.32);
+    --thumbnail-sky: #29485f;
+    --thumbnail-sky-alt: #433b59;
+    --thumbnail-sky-warm: #574133;
+    --thumbnail-city: #8bb3d1;
+    --thumbnail-track: #f08a55;
+    --thumbnail-date-surface: rgba(6, 29, 51, 0.94);
+  }
+}
