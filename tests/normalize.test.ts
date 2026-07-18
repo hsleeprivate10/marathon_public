@@ -127,6 +127,30 @@ describe("dedupKey", () => {
     const b = makeRace({ name: "부산마라톤", eventDate: "2025-05-18" });
     expect(dedupKey(a)).not.toBe(dedupKey(b));
   });
+
+  it("keeps same-name same-date races distinct when venues differ", () => {
+    const seoul = makeRace({ name: "시민마라톤", venue: "서울광장" });
+    const busan = makeRace({ name: "시민마라톤", venue: "부산시민공원" });
+
+    expect(dedupKey(seoul)).not.toBe(dedupKey(busan));
+  });
+
+  it("keeps distinct fallback keys when normalization removes the full name", () => {
+    const seoul = makeRace({ name: "[서울] 마라톤" });
+    const busan = makeRace({ name: "[부산] 마라톤" });
+
+    expect(dedupKey(seoul)).not.toBe(dedupKey(busan));
+  });
+
+  it("keeps raw identity in keys for short and punctuation-only normalized names", () => {
+    const seoul = makeRace({ name: "[서울] 가" });
+    const busan = makeRace({ name: "[부산] 가" });
+    const dot = makeRace({ name: "." });
+    const comma = makeRace({ name: "," });
+
+    expect(dedupKey(seoul)).not.toBe(dedupKey(busan));
+    expect(dedupKey(dot)).not.toBe(dedupKey(comma));
+  });
 });
 
 describe("mergeRaces", () => {
@@ -186,6 +210,15 @@ describe("mergeRaces", () => {
 
     expect(mergeRaces(existing, incoming).applicationUrl).toBe(
       "https://registration.example.com/apply",
+    );
+  });
+
+  it("preserves an official site supplied by either duplicate", () => {
+    const existing = makeRace({ officialSiteUrl: undefined });
+    const incoming = makeRace({ officialSiteUrl: "https://official.example.com/race" });
+
+    expect(mergeRaces(existing, incoming).officialSiteUrl).toBe(
+      "https://official.example.com/race",
     );
   });
 });

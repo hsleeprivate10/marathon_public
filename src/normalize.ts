@@ -6,6 +6,9 @@
  * Never manufactures missing dates or prices.
  */
 import type { Race } from "./contract.js";
+import { compactRaceName, isAggregatorUrl, representsSameEvent } from "./race-identity.js";
+
+export { normalizeRaceName } from "./race-identity.js";
 
 const regionPatterns = [
   ["서울", /서울/],
@@ -27,45 +30,6 @@ const regionPatterns = [
   ["제주", /제주(?:특별자치도)?/],
 ] as const;
 
-const aggregatorHosts = new Set([
-  "emarathon.or.kr",
-  "gorunning.kr",
-  "marathon.me.kr",
-  "marathonmate.store",
-  "runningmap.kr",
-  "www.emarathon.or.kr",
-  "www.gorunning.kr",
-  "www.marathon.me.kr",
-  "www.marathonmate.store",
-  "www.runningmap.kr",
-]);
-
-// ---------------------------------------------------------------------------
-// Korean name normalization
-// ---------------------------------------------------------------------------
-
-/** Normalize a race name for dedup key generation. */
-export function normalizeRaceName(name: string): string {
-  return (
-    name
-      // Collapse all whitespace to single space
-      .replace(/\s+/g, " ")
-      // Remove common bracket/suffix decorations
-      .replace(/[【\[](.*?)[】\]]/g, "")
-      // Normalize Korean parenthetical markers
-      .replace(/[（(](.*?)[）)]/g, "")
-      // Strip trailing organizational suffixes
-      .replace(/\s*(?:대회|마라톤|축제|코스| Challenge|Race|Run)$/i, "")
-      // Normalize common abbreviations
-      .replace(/제\s*\d+\s*회/g, "")
-      // Remove non-alphanumeric except Korean
-      .replace(/[^\w가-힣\s]/g, "")
-      // Final whitespace trim
-      .trim()
-      .toLowerCase()
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Dedup key generation
 // ---------------------------------------------------------------------------
@@ -75,8 +39,17 @@ export function normalizeRaceName(name: string): string {
  * Uses normalized name + event date for high-confidence matching.
  */
 export function dedupKey(race: Race): string {
-  const normalized = normalizeRaceName(race.name);
-  return `${normalized}|${race.eventDate}`;
+  const compact = compactRaceName(race.name);
+  const normalized =
+    compact.length >= 2
+      ? compact
+      : `raw:${encodeURIComponent(race.name.normalize("NFKC").toLowerCase().replace(/\s+/g, ""))}`;
+  const venue =
+    race.venue
+      .normalize("NFKC")
+      .toLowerCase()
+      .replace(/[^a-z0-9가-힣]/g, "") || "미상";
+  return `${normalized}|${race.eventDate}|${venue}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -133,6 +106,7 @@ export function mergeRaces(existing: Race, incoming: Race): Race {
     region: existing.region ?? incoming.region,
     courses: existingCourses,
     applicationUrl: preferredApplicationUrl(existing.applicationUrl, incoming.applicationUrl),
+    officialSiteUrl: existing.officialSiteUrl ?? incoming.officialSiteUrl,
     notes: mergeNotes(existing.notes, incoming.notes),
     urlScheme: existing.urlScheme ?? incoming.urlScheme,
     sources: mergedSources,
@@ -145,8 +119,8 @@ export function mergeRaces(existing: Race, incoming: Race): Race {
 }
 
 function preferredApplicationUrl(existing: string, incoming: string): string {
-  const existingIsAggregator = aggregatorHosts.has(new URL(existing).hostname);
-  const incomingIsAggregator = aggregatorHosts.has(new URL(incoming).hostname);
+  const existingIsAggregator = isAggregatorUrl(existing);
+  const incomingIsAggregator = isAggregatorUrl(incoming);
   return existingIsAggregator && !incomingIsAggregator ? incoming : existing;
 }
 
@@ -176,7 +150,16 @@ function mergeNotes(a: string | undefined, b: string | undefined): string | unde
  * Preserves source attribution; earlier entries (primary sources) keep priority.
  */
 export function deduplicateRaces(races: ReadonlyArray<Race>): Race[] {
-  const map = new Map<string, Race>();
+  return deduplicateRaceCollection(races).races;
+}
+
+export type DeduplicatedRaceCollection = {
+  readonly races: Race[];
+  readonly aliases: ReadonlyMap<string, string>;
+};
+
+export function deduplicateRaceCollection(races: ReadonlyArray<Race>): DeduplicatedRaceCollection {
+  const normalized: Race[] = [];
 
   for (const race of races) {
     // Reject page headings and leaked markup before they reach public data.
@@ -194,16 +177,29 @@ export function deduplicateRaces(races: ReadonlyArray<Race>): Race[] {
       region === undefined && name === race.name && venue === race.venue
         ? race
         : { ...race, name, venue, ...(region && { region }) };
-    const key = dedupKey(normalizedRace);
-    const existing = map.get(key);
-    if (existing) {
-      map.set(key, mergeRaces(existing, normalizedRace));
-    } else {
-      map.set(key, { ...normalizedRace });
-    }
+    normalized.push({ ...normalizedRace });
   }
 
-  return [...map.values()];
+  const groups: Race[][] = [];
+  for (const race of normalized) {
+    const group = groups.find((candidate) => {
+      const anchor = candidate[0];
+      return anchor !== undefined && representsSameEvent(anchor, race);
+    });
+    if (group === undefined) groups.push([race]);
+    else group.push(race);
+  }
+
+  const aliases = new Map<string, string>();
+  const deduplicated = groups.flatMap((group) => {
+    const first = group[0];
+    if (first === undefined) return [];
+    const merged = group.slice(1).reduce((current, race) => mergeRaces(current, race), first);
+    const canonicalKey = dedupKey(merged);
+    for (const race of group) aliases.set(dedupKey(race), canonicalKey);
+    return [merged];
+  });
+  return { races: deduplicated, aliases };
 }
 
 function inferRegion(venue: string): string | undefined {
