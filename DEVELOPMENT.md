@@ -4,6 +4,10 @@
 
 The project uses Bun, TypeScript strict mode, Biome, Vitest, Zod, Vite, and Ky. Run `bun install` after dependency changes.
 
+Install Playwright Chromium and its system dependencies once with `bunx playwright install --with-deps chromium`. On Linux, the dependency step installs system packages and therefore requires `sudo` or equivalent root access. After setup, run the self-contained production E2E suite normally with `bun run test:e2e`; Playwright starts and stops its project-subpath server automatically.
+
+Normal development and CI environments use Playwright's installed system dependencies. For restricted QA environments where system packages cannot be installed, `playwright.config.ts` can discover browser libraries under the optional, uncommitted `.tmp/qa-root/` fallback. That directory is local infrastructure only and is not required on correctly provisioned machines.
+
 ## Test Discipline
 
 Parser tests must use the captured files under `tests/fixtures/`; they must never request a live source. The core suites are:
@@ -16,8 +20,16 @@ Parser tests must use the captured files under `tests/fixtures/`; they must neve
 | `tests/orchestrator.test.ts` | Sequential collection and generated JSON |
 | `tests/official-sites/` | Candidate discovery, live SSRF-safe transport, parsing, identity, merge, fixtures, and the 40-loader-invocation budget |
 | `tests/filters.test.ts` | Exact AND filters and month-independent filter behavior |
+| `tests/page-model.test.ts` | Hash-route fallback and chronological homepage month grouping |
+| `tests/home-race-selection.test.ts` | Pure homepage year/month options and exact section-selection matrix |
+| `tests/race-link.test.ts` | Application URL race-row destination policy |
+| `e2e/home-month-selector.pw.ts` | Production year/month matrix, option updates, DOM retention, focus, empty state, layout, CJK text, and local assets |
+| `e2e/calendar-home-design.pw.ts` | Calendar-to-home history, shared computed design tokens, controls, responsive list/grid, Korean rendering, errors, and overflow at 375/768/1280 |
+| `e2e/dark-mode.pw.ts` | Production light-independent dark token, WCAG contrast, overflow, and error checks for both routes at 375/768/1280 |
+| `e2e/fixtures/collection.ts` | Typed fixed 2026/2027 `CollectionOutput` plus a Playwright Clock helper pinned to July 2026; includes a shared February, multiple 2026 months, and a July 2026 calendar race |
+| `e2e/helpers/` | Shared browser signals, selector inspection, and computed WCAG contrast helpers |
 
-Before changing a parser, add or update a fixture assertion that would fail before the parser change. Keep TypeScript files below 250 pure lines by splitting parse, network, and presentation concerns.
+Before changing a parser, add or update a fixture assertion that would fail before the parser change. Shape-dependent browser scenarios must route `e2e/fixtures/collection.ts`; only the separate public-data smoke test reads the built `public/races.json`, and it must not assume years, months, or a current-month race. Keep TypeScript files below 250 pure lines by splitting parse, network, and presentation concerns.
 
 ## Adding or Repairing a Source
 
@@ -49,7 +61,7 @@ The 40 budget counts official candidate loader invocations. It is not a raw HTTP
 
 ## UI Work
 
-`DESIGN.md` is the visual contract. Keep the desktop seven-day grid, mobile event-list fallback, visible form labels, keyboard-accessible controls, source-failure notice, and generated timestamp. Region, course, and status filters are exact AND filters; empty values are wildcards. Filter changes and reset must preserve the displayed month, while previous/next remain the only month controls. Race cards prefer verified `officialSiteUrl` and fall back to `applicationUrl`. Run browser visual QA at 375px, 768px, and 1280px after UI edits.
+`DESIGN.md` is the visual contract. `src/main.ts` coordinates the default homepage and `#/calendar`; page rendering stays split across `home-page.ts`, `home-race-row.ts`, `calendar-page.ts`, and page-scoped CSS imports. Shared homepage/calendar navy, orange, canvas, radius, and elevation tokens live in `shared-brand-tokens.css`; calendar header/hero DOM lives in `calendar-header.ts`, separate from calendar behavior. Homepage search/region/course/status/reset and favorites remain visible disabled/read-only previews with no persistence. Homepage year/month filtering is functional: pure selection rules stay in `home-race-selection.ts`, DOM behavior stays in `home-month-selector.ts`, changing year resets month, and hidden sections remain mounted. Calendar region/course/status filters remain exact AND filters; empty values are wildcards, reset preserves the displayed month, and previous/next remain the only calendar month controls. Race rows always use the validated `applicationUrl`; do not change `raceHref()` to prefer `officialSiteUrl`. Keep the seven-day desktop grid, mobile event-list fallback, source-failure notice below homepage selectors, local project-relative Korean fonts, and hash-route static hosting. Run `bun run test:e2e` plus browser visual QA at 375px, 768px, and 1280px after UI edits.
 
 ## Deliberately Out of Scope
 
