@@ -1,0 +1,138 @@
+@media (max-width: 767px) {
+  .home-header-inner {
+    flex-wrap: wrap;
+    padding-top: var(--space-2);
+    padding-bottom: var(--space-2);
+  }
+
+  .home-nav {
+    width: 100%;
+    gap: var(--space-5);
+  }
+
+  .home-hero-inner {
+    grid-template-columns: 1fr;
+    padding-top: var(--space-8);
+    padding-bottom: var(--space-8);
+  }
+
+  .home-hero-art {
+    min-height: 220px;
+    margin-top: var(--space-4);
+  }
+
+  .home-filter-panel {
+    margin-top: var(--space-4);
+  }
+
+  .home-filter-heading,
+  .home-month-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .home-filter-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .home-races-intro {
+    display: block;
+  }
+
+  .home-race-link {
+    grid-template-columns: 72px minmax(0, 1fr);
+    gap: var(--space-2);
+  }
+
+  .home-race-name {
+    overflow: visible;
+    overflow-wrap: anywhere;
+    text-overflow: clip;
+    white-space: normal;
+    word-break: keep-all;
+  }
+
+  .home-race-action {
+    grid-column: 2;
+  }
+
+  .home-race-metadata {
+    display: grid;
+    gap: var(--space-1);
+  }
+
+  .home-race-metadata > span + span::before {
+    content: none;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1023px) and (max-height: 700px) {
+  .home-header-search-label,
+  .home-header-search-note {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .home-hero-inner {
+    min-height: 276px;
+    padding-top: var(--space-2);
+    padding-bottom: calc(var(--space-6) + var(--filter-overlap));
+  }
+
+  .home-hero h1 {
+    font-size: 36px;
+    line-height: 1;
+  }
+
+  .home-hero .home-eyebrow {
+    margin-bottom: 0;
+  }
+
+  .home-hero-lede {
+    margin: 0;
+    font-size: 15px;
+  }
+
+  .home-hero-art {
+    min-height: 200px;
+  }
+
+  .home-filter-panel {
+    margin-top: calc((var(--filter-overlap) + var(--space-10)) * -1);
+    padding: var(--space-3);
+  }
+
+  .home-filter-heading {
+    margin-bottom: var(--space-2);
+  }
+
+  .home-races {
+    padding-top: var(--space-3);
+  }
+
+  .home-races-intro {
+    margin-bottom: 0;
+  }
+
+  .home-races-intro > .home-eyebrow {
+    display: none;
+  }
+
+  .home-races-intro h2 {
+    font-size: 32px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-page *,
+  .home-page *::before,
+  .home-page *::after {
+    scroll-behavior: auto !important;
+    transition: none !important;
+  }
+}
