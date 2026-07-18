@@ -3,55 +3,30 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/fonts/fonts.css" />
+    <link
+      rel="preload"
+      href="/fonts/noto-sans-kr-korean-400-normal.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      href="/fonts/noto-sans-kr-korean-700-normal.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
     <meta
       name="description"
-      content="국내 마라톤 대회의 일정, 장소, 접수 상태를 월별로 확인하세요."
+      content="국내 마라톤 대회를 월별 홈 화면과 캘린더로 확인하고 공식 신청 페이지로 이동하세요."
     />
-    <title>Marathon Calendar</title>
+    <title>마라톤 캘린더 | 국내 대회 일정</title>
   </head>
   <body>
-    <a class="skip-link" href="#calendar">일정으로 건너뛰기</a>
-    <main class="page-shell">
-      <header class="masthead">
-        <p class="eyebrow">DOMESTIC RACE SCHEDULE</p>
-        <h1>Marathon Calendar</h1>
-        <p class="lede">국내 마라톤 일정을 출처와 함께 월별로 확인하세요.</p>
-      </header>
-      <section id="freshness" class="freshness" aria-live="polite"></section>
-      <section class="schedule-layout" aria-label="대회 일정">
-        <aside class="filter-panel" aria-label="일정 필터">
-          <h2>필터</h2>
-          <label>
-            <span>지역</span>
-            <select id="region-filter"><option value="">전체 지역</option></select>
-          </label>
-          <label>
-            <span>코스</span>
-            <select id="distance-filter"><option value="">전체 코스</option></select>
-          </label>
-          <label>
-            <span>접수 상태</span>
-            <select id="status-filter">
-              <option value="">전체 상태</option>
-              <option value="open">접수 중</option>
-              <option value="closing-soon">마감 임박</option>
-              <option value="closed">접수 마감</option>
-              <option value="unknown">정보 확인 필요</option>
-            </select>
-          </label>
-          <button id="reset-filters" class="button-secondary" type="button">필터 초기화</button>
-        </aside>
-        <section class="calendar-panel">
-          <div class="month-nav">
-            <button id="previous-month" type="button" aria-label="이전 달">이전</button>
-            <h2 id="month-heading" aria-live="polite"></h2>
-            <button id="next-month" type="button" aria-label="다음 달">다음</button>
-          </div>
-          <p id="result-count" class="result-count"></p>
-          <div id="calendar" tabindex="-1" aria-live="polite"></div>
-        </section>
-      </section>
-    </main>
+    <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
