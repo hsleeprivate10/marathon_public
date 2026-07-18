@@ -24,19 +24,23 @@ Use color only with text or icons that state the same meaning. There are no deco
 
 Primary UI font: `ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif`.
 
+Korean prose, freshness text, and mobile race text keep words and particles intact. Safe overflow wrapping may break only otherwise uncontainable text; grid-width race titles remain single-line ellipses.
+
 | Level | Size | Weight | Usage |
 | --- | --- | --- | --- |
-| Display | 36px | 700 | Month heading |
-| H2 | 24px | 650 | Race card title |
+| Display | 36–56px responsive | 700 | Page title |
+| H2 | 24px | 700 | Month heading |
+| Event title | 13px grid, 14px mobile | 700 | Race card title |
 | Body | 16px | 400 | Default copy |
-| Small | 14px | 500 | Event metadata and controls |
-| Caption | 12px | 600 | Weekday and status labels |
+| Small | 14px | 400 count, 600 labels | Result count and filter labels |
+| Event metadata | 11px | 400 | Mobile race venue and status |
+| Caption | 12px | 700 | Eyebrow, weekday, and date labels |
 
 ## 4. Spacing & Layout
 
-The base unit is 4px. Tokens: `--space-1` 4px, `--space-2` 8px, `--space-3` 12px, `--space-4` 16px, `--space-5` 20px, `--space-6` 24px, `--space-8` 32px, `--space-10` 40px, `--space-12` 48px.
+The base unit is 4px. Tokens: `--space-1` 4px, `--space-2` 8px, `--space-3` 12px, `--space-4` 16px, `--space-5` 20px, `--space-6` 24px, `--space-8` 32px, `--space-10` 40px.
 
-Content is constrained to 1200px. At 375px the calendar becomes an event-list layout; at 768px it becomes a full-width seven-column grid; at 1024px filters sit beside the schedule.
+Content is constrained to 1200px. At 375px the calendar becomes an event-only list that hides dates without races; at 768px it becomes a full-width seven-column grid; at 1024px filters sit beside the schedule.
 
 ## 5. Components
 
@@ -53,12 +57,12 @@ Content is constrained to 1200px. At 375px the calendar becomes an event-list la
 - Accessibility: every control has a visible label; filtering never relies on color.
 
 ### Calendar Cell and Event Card
-- Structure: date number, event links with status text, optional overflow count. At grid widths, event cards show only the title; venue and status stay in the accessible link label and remain visible in the mobile list. Tablet grid titles use a single-line ellipsis to prevent narrow cells from breaking Korean words vertically.
+- Structure: date number, event links with status text, optional overflow count. At grid widths, event cards show only the title; venue and status stay in the accessible link label and remain visible in the mobile list. All grid-width titles use a single-line ellipsis to prevent narrow cells from breaking Korean words vertically.
 - States: default/focus/hover. Links retain visible focus outlines.
 - Accessibility: date cells use labelled sections; event links include name, date, venue, and status.
 
 ### Freshness Notice
-- Structure: generated timestamp and source count.
+- Structure: generated timestamp; when collection is partial, the text also names each failed source ID.
 - States: normal and partial-collection warning.
 - Accessibility: partial failures use `role="status"` and name failed sources in text.
 

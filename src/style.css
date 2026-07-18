@@ -75,6 +75,11 @@ h2 {
   font-size: 18px;
   line-height: 1.6;
 }
+.lede,
+.freshness {
+  overflow-wrap: anywhere;
+  word-break: keep-all;
+}
 .freshness {
   background: var(--surface-muted);
   border-left: 4px solid var(--accent);
@@ -216,15 +221,13 @@ a:focus-visible {
   .race {
     gap: 0;
   }
-  .race span {
-    display: none;
-  }
-}
-@media (min-width: 768px) and (max-width: 1023px) {
   .race strong {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .race span {
+    display: none;
   }
 }
 @media (max-width: 767px) {
@@ -243,7 +246,7 @@ a:focus-visible {
     margin-bottom: var(--space-2);
     min-height: 0;
   }
-  .day-cell:empty {
+  .day-cell.is-empty {
     display: none;
   }
   .race {
@@ -251,6 +254,11 @@ a:focus-visible {
   }
   .race strong {
     font-size: 14px;
+  }
+  .race strong,
+  .race span {
+    overflow-wrap: anywhere;
+    word-break: keep-all;
   }
 }
 @media (prefers-color-scheme: dark) {

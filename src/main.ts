@@ -1,12 +1,8 @@
 import ky from "ky";
 import { CollectionOutputSchema, type Race } from "./contract.js";
+import { type Filters, filterRaces } from "./filters.js";
+import { raceHref } from "./race-link.js";
 import "./style.css";
-
-type Filters = {
-  readonly region: string;
-  readonly distance: string;
-  readonly status: string;
-};
 
 const monthNames = [
   "1월",
@@ -74,16 +70,7 @@ function activeFilters(): Filters {
 }
 
 function filteredRaces(): readonly Race[] {
-  const filters = activeFilters();
-  return races.filter((race) => {
-    const hasDistance =
-      filters.distance === "" || race.courses.some((course) => course.name === filters.distance);
-    return (
-      (filters.region === "" || race.region === filters.region) &&
-      hasDistance &&
-      (filters.status === "" || race.registrationStatus === filters.status)
-    );
-  });
+  return filterRaces(races, activeFilters());
 }
 
 function renderCalendar(): void {
@@ -121,6 +108,7 @@ function renderGrid(year: number, month: number, monthRaces: readonly Race[]): H
     dayLabel.textContent = String(day);
     cell.append(dayLabel);
     const dayRaces = monthRaces.filter((race) => localDate(race.eventDate).getDate() === day);
+    if (dayRaces.length === 0) cell.classList.add("is-empty");
     for (const race of dayRaces) cell.append(renderRace(race));
     grid.append(cell);
   }
@@ -130,12 +118,12 @@ function renderGrid(year: number, month: number, monthRaces: readonly Race[]): H
 function renderRace(race: Race): HTMLAnchorElement {
   const link = document.createElement("a");
   link.className = `race status-${escapeCss(race.registrationStatus)}`;
-  link.href = race.applicationUrl;
+  link.href = raceHref(race);
   link.target = "_blank";
-  link.rel = "noreferrer";
+  link.rel = "noopener noreferrer";
   link.setAttribute(
     "aria-label",
-    `${race.name}, ${race.venue}, ${formatStatus(race.registrationStatus)}`,
+    `${race.name}, ${race.eventDate}, ${race.venue}, ${formatStatus(race.registrationStatus)}`,
   );
   const name = document.createElement("strong");
   name.textContent = race.name;
