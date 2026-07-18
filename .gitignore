@@ -3,6 +3,8 @@ node_modules/
 
 # Build output
 dist/
+.tmp/
+.omo/
 qa-*.png
 
 # Generated data (produced by `bun run collect`)

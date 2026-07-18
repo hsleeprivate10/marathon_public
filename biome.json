@@ -40,6 +40,6 @@
     }
   },
   "files": {
-    "ignore": ["dist", "node_modules", "public"]
+    "ignore": [".tmp", "dist", "node_modules", "public"]
   }
 }
