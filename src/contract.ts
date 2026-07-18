@@ -5,6 +5,10 @@
  * Internal code works exclusively with the inferred types.
  */
 import { z } from "zod";
+import {
+  safeApplicationUrl,
+  safeOfficialPageUrl,
+} from "./official-sites/application-url-policy.js";
 
 // ---------------------------------------------------------------------------
 // Course & pricing
@@ -39,16 +43,45 @@ export const RegistrationStatusSchema = z.enum(["open", "closing-soon", "closed"
 
 export type RegistrationStatus = z.infer<typeof RegistrationStatusSchema>;
 
+export function isValidIsoDate(value: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (match === null) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return (
+    date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
+  );
+}
+
+export const IsoDateSchema = z
+  .string()
+  .refine(isValidIsoDate, "Expected a real ISO calendar date (YYYY-MM-DD)");
+
+const PublicRaceUrlSchema = z
+  .string()
+  .url()
+  .refine(
+    (value) => safeApplicationUrl(value) !== null,
+    "Race URL must be a public non-payment HTTP(S) URL without credentials",
+  );
+
+const OfficialRaceUrlSchema = z
+  .string()
+  .url()
+  .refine(
+    (value) => safeOfficialPageUrl(value) !== null,
+    "Official URL must be a public non-payment, non-registration HTTP(S) page",
+  );
+
 export const RaceSchema = z.object({
   /** Human-readable race name (Korean preferred) */
   name: z.string().min(1),
   /** ISO 8601 date string (YYYY-MM-DD) */
-  eventDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  eventDate: IsoDateSchema,
   /** ISO 8601 date or null if not available */
-  registrationDeadline: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/)
-    .nullable(),
+  registrationDeadline: IsoDateSchema.nullable(),
   /** City/venue text as published */
   venue: z.string().min(1),
   /** Broad region hint */
@@ -56,7 +89,8 @@ export const RaceSchema = z.object({
   /** Per-distance courses with nullable prices; empty when a source publishes no distances */
   courses: z.array(CourseSchema),
   /** Primary source URL for the race */
-  applicationUrl: z.string().url(),
+  applicationUrl: PublicRaceUrlSchema,
+  officialSiteUrl: OfficialRaceUrlSchema.optional(),
   /** Free-text notes (site-specific caveats) */
   notes: z.string().optional(),
   /** Canonical URL scheme used for dedup keys */
