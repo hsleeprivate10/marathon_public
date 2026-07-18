@@ -1,0 +1,99 @@
+.calendar-page .filter-panel {
+  display: grid;
+  align-content: start;
+  gap: var(--space-4);
+  padding: var(--space-5);
+}
+
+.calendar-page .filter-panel h2,
+.calendar-page .month-nav h2 {
+  margin: 0;
+  color: var(--brand-heading);
+  font-size: 24px;
+  letter-spacing: -0.02em;
+}
+
+.calendar-page .filter-panel label,
+.calendar-page .filter-panel select,
+.calendar-page .filter-panel button {
+  width: 100%;
+  min-width: 0;
+}
+
+.calendar-page label {
+  display: grid;
+  gap: var(--space-2);
+  color: var(--filter-text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.calendar-page select,
+.calendar-page button {
+  min-height: var(--control-height);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--filter-border);
+  border-radius: var(--radius-pill);
+  background: var(--filter-surface);
+  color: var(--filter-text);
+}
+
+.calendar-page button {
+  cursor: pointer;
+  font-weight: 700;
+  transition: background 150ms ease-out, color 150ms ease-out, transform 150ms ease-out;
+}
+
+.calendar-page select:focus-visible,
+.calendar-page button:focus-visible,
+.calendar-page .calendar-home-link:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.calendar-page .button-secondary {
+  color: var(--brand-link);
+}
+
+.calendar-page .button-secondary:hover {
+  background: var(--homepage-canvas);
+}
+
+.calendar-page .calendar-panel {
+  padding: var(--space-5);
+}
+
+.calendar-page .month-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.calendar-page .month-nav button {
+  min-width: 76px;
+  border-color: transparent;
+  color: var(--filter-selected-text);
+}
+
+.calendar-page #previous-month {
+  background: var(--hero-navy);
+}
+
+.calendar-page #previous-month:hover {
+  background: var(--filter-selected);
+  transform: translateY(-1px);
+}
+
+.calendar-page #next-month {
+  background: var(--cta-orange);
+}
+
+.calendar-page #next-month:hover {
+  background: var(--cta-orange-hover);
+  transform: translateY(-1px);
+}
+
+.calendar-page .month-nav button:active {
+  transform: translateY(0);
+}
