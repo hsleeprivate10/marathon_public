@@ -7,9 +7,12 @@
  */
 import type { Race } from "../contract.js";
 import { computeRegistrationStatus } from "../contract.js";
+import { safeApplicationUrl } from "../official-sites/application-url-policy.js";
+import { discoverRaceLinks } from "../official-sites/discovery.js";
 import {
   type AdapterResult,
   type CollectConfig,
+  type DiscoveredRaceLink,
   type SourceAdapter,
   failedMetadata,
   fetchWithTimeout,
@@ -24,6 +27,21 @@ interface ParsedRace {
   readonly eventDate: string;
   readonly venue: string;
   readonly detailUrl: string;
+  readonly sourceHtml: string;
+}
+
+function rowBlock(html: string, index: number): string {
+  const openPattern = /<tr\b[^>]*>/gi;
+  let bestStart: number | undefined;
+  let match = openPattern.exec(html);
+  while (match !== null && match.index <= index) {
+    bestStart = match.index;
+    match = openPattern.exec(html);
+  }
+  if (bestStart === undefined) return "";
+  const close = html.toLowerCase().indexOf("</tr>", index);
+  if (close === -1) return "";
+  return html.slice(bestStart, close + "</tr>".length);
 }
 
 function parseKaafHtml(html: string): ReadonlyArray<ParsedRace> {
@@ -39,24 +57,25 @@ function parseKaafHtml(html: string): ReadonlyArray<ParsedRace> {
 
     // Only include links that look like event/race pages
     if (
-      text.includes("마라톤") ||
-      text.includes("대회") ||
-      text.includes("대회일") ||
-      /마라톤|대회|race/i.test(text)
+      /마라톤|대회|race/i.test(text) &&
+      !/^(?:공식\s*)?(?:대회\s*)?홈페이지|참가신청|접수|신청하기|신청$/i.test(text)
     ) {
-      // Try to find a date nearby
+      // Use the exact table row as discovery context; fallback context is
+      // metadata-only and is never sent to discoverRaceLinks.
       const idx = match.index;
-      const context = html.slice(Math.max(0, idx - 200), idx + 200);
+      const sourceHtml = rowBlock(html, idx);
+      const context = sourceHtml || html.slice(Math.max(0, idx - 500), idx + 500);
       const dateMatch = context.match(/(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})/);
 
-      races.push({
-        name: text,
-        eventDate: dateMatch
-          ? `${dateMatch[1]}-${(dateMatch[2] ?? "").padStart(2, "0")}-${(dateMatch[3] ?? "").padStart(2, "0")}`
-          : "2025-01-01",
-        venue: "미상",
-        detailUrl: href.startsWith("http") ? href : `${BASE_URL}/${href.replace(/^\//, "")}`,
-      });
+      if (dateMatch !== null) {
+        races.push({
+          name: text,
+          eventDate: `${dateMatch[1]}-${(dateMatch[2] ?? "").padStart(2, "0")}-${(dateMatch[3] ?? "").padStart(2, "0")}`,
+          venue: "미상",
+          detailUrl: href.startsWith("http") ? href : `${BASE_URL}/${href.replace(/^\//, "")}`,
+          sourceHtml,
+        });
+      }
     }
     match = linkPattern.exec(html);
   }
@@ -83,15 +102,17 @@ export const KaafAdapter: SourceAdapter = {
       const parsed = parseKaafHtml(homeHtml);
       const now = new Date().toISOString();
       const races: Race[] = [];
+      const discoveredLinks: DiscoveredRaceLink[] = [];
 
       for (const p of parsed) {
-        races.push({
+        const race: Race = {
           name: p.name,
           eventDate: p.eventDate,
           registrationDeadline: null,
           venue: p.venue,
           courses: [],
-          applicationUrl: p.detailUrl,
+          applicationUrl:
+            safeApplicationUrl(p.detailUrl) ?? `${BASE_URL}/mobile/info/inside_all.asp`,
           notes: "KAAF: verification-only source, no pricing/course data",
           sources: [id],
           verified: false,
@@ -99,11 +120,26 @@ export const KaafAdapter: SourceAdapter = {
           updatedAt: now,
           generatedAt: now,
           registrationStatus: computeRegistrationStatus(null, p.eventDate),
+        };
+        const links = discoverRaceLinks({
+          race,
+          sourceId: id,
+          sourcePageUrl: `${BASE_URL}/mobile/info/inside_all.asp`,
+          sourceHosts: ["m.kaaf.or.kr", "kaaf.or.kr"],
+          aggregatorHosts: ["m.kaaf.or.kr", "kaaf.or.kr"],
+          html: p.sourceHtml,
+          raceDetailContext: { present: true },
         });
+        const registrationLink =
+          links.find((link) => link.kind === "application") ??
+          links.find((link) => link.kind === "official-site");
+        races.push(registrationLink ? { ...race, applicationUrl: registrationLink.url } : race);
+        discoveredLinks.push(...links);
       }
 
       return {
         races,
+        discoveredLinks,
         metadata: successMetadata(
           id,
           races.length,
@@ -116,6 +152,7 @@ export const KaafAdapter: SourceAdapter = {
       const message = error instanceof Error ? error.message : String(error);
       return {
         races: [],
+        discoveredLinks: [],
         metadata: failedMetadata(id, true, `KAAF failed: ${message}`),
       };
     }
