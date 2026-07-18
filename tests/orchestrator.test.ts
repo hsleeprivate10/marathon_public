@@ -221,10 +221,15 @@ describe("orchestrator", () => {
   });
 
   it("enriches a deduplicated race from a lower-priority source candidate", async () => {
-    const primary = race("primary", "중복 & 공식 대회");
+    const primary = {
+      ...race("primary", "2026 하반기 JUST RUN10 세종"),
+      applicationUrl: "https://registration.example/primary",
+      venue: "세종마루공원",
+    };
     const secondary = {
-      ...race("secondary", "중복 &amp; 공식 대회"),
-      venue: "보조 장소",
+      ...race("secondary", "2026 JUST RUN10 하반기 세종"),
+      applicationUrl: "https://registration.example/secondary",
+      venue: "세종마루공원",
     };
     const officialUrl = "https://official.example/duplicate";
     const fetchOfficialPage = vi.fn(async () => ({
@@ -294,6 +299,24 @@ describe("orchestrator", () => {
     expect(result.collectionMetadata.at(-1)?.message).toBe(
       "candidate=1 fetched=1 accepted=0 rejected=1 budgetSkipped=0",
     );
+  });
+
+  it("drops invalid adapter records before duplicate URL parsing", async () => {
+    const invalid = { ...race("invalid"), applicationUrl: "not-a-url" };
+    const valid = race("valid", "유효한 대회");
+
+    const result = await collect(
+      { projectRoot: TMP_DIR, fixtureBaseDir: undefined },
+      {
+        adapters: [adapter("invalid", invalid), adapter("valid", valid)],
+        now: () => NOW,
+        sleep: vi.fn(() => Promise.resolve()),
+        courtesyDelayMs: 0,
+      },
+    );
+
+    expect(result.races).toHaveLength(1);
+    expect(result.races[0]?.name).toBe("유효한 대회");
   });
 
   it("uses official fixtures without invoking the live official fetcher", async () => {

@@ -16,9 +16,9 @@ import {
   failedMetadata,
   sleep,
 } from "./adapters/types.js";
-import { CollectionOutputSchema, type Race, type SourceRecord } from "./contract.js";
+import { CollectionOutputSchema, type Race, RaceSchema, type SourceRecord } from "./contract.js";
 import { computeRegistrationStatus } from "./contract.js";
-import { dedupKey, deduplicateRaces, sortRaces } from "./normalize.js";
+import { dedupKey, deduplicateRaceCollection, sortRaces } from "./normalize.js";
 import { type OfficialPageLoader, enrichOfficialSites } from "./official-sites/enrichment.js";
 import { fetchOfficialPage } from "./official-sites/fetch.js";
 import { createFixtureOfficialPageLoader } from "./official-sites/fixture-loader.js";
@@ -77,9 +77,13 @@ export async function collect(
 
     // Only include successfully collected races
     if (result.metadata.succeeded) {
-      allRaces.push(...result.races.map((r) => ({ ...r, generatedAt })));
+      const validRaces = result.races.flatMap((race) => {
+        const parsed = RaceSchema.safeParse({ ...race, generatedAt });
+        return parsed.success ? [parsed.data] : [];
+      });
+      allRaces.push(...validRaces);
       const normalizedKeys = new Map(
-        result.races.map((race) => [
+        validRaces.map((race) => [
           dedupKey(race),
           dedupKey({ ...race, name: race.name.replaceAll("&amp;", "&") }),
         ]),
@@ -94,7 +98,12 @@ export async function collect(
   }
 
   // Deduplicate and sort
-  const deduped = deduplicateRaces(allRaces);
+  const deduplicated = deduplicateRaceCollection(allRaces);
+  const deduped = deduplicated.races;
+  const reboundLinks = discoveredLinks.map((link) => ({
+    ...link,
+    dedupKey: deduplicated.aliases.get(link.dedupKey) ?? link.dedupKey,
+  }));
 
   // Recompute registration status for all races (may have changed since collection)
   const refreshed: Race[] = deduped.map((race) => ({
@@ -120,7 +129,7 @@ export async function collect(
     }
     const liveFetch = internals.fetchOfficialPage ?? fetchOfficialPage;
     const loadPage: OfficialPageLoader = fixtureLoader ?? ((url) => liveFetch(url));
-    const result = await enrichOfficialSites(refreshed, discoveredLinks, {
+    const result = await enrichOfficialSites(refreshed, reboundLinks, {
       today: generatedAt.slice(0, 10),
       verifiedAt: generatedAt,
       maxFetches: OFFICIAL_FETCH_BUDGET,
