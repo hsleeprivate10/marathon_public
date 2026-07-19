@@ -124,32 +124,6 @@
   letter-spacing: 0.12em;
 }
 
-.home-hero h1 {
-  max-width: 680px;
-  margin: 0;
-  font-size: clamp(36px, 5vw, 56px);
-  line-height: 1.08;
-  letter-spacing: -0.04em;
-  word-break: keep-all;
-}
-
-.home-hero-line {
-  display: block;
-}
-
-.home-hero-lede {
-  max-width: 560px;
-  margin: var(--space-5) 0 var(--space-6);
-  color: var(--hero-text-muted);
-  font-size: 18px;
-  line-height: 1.6;
-  word-break: keep-all;
-}
-
-.home-hero-phrase {
-  display: inline-block;
-}
-
 .home-calendar-cta {
   display: inline-flex;
   align-items: center;
@@ -163,6 +137,7 @@
   font-weight: 700;
   text-decoration: none;
   transition: background 150ms ease-out, transform 150ms ease-out;
+  margin-top: var(--space-5);
 }
 
 .home-calendar-cta:hover {

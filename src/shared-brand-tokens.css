@@ -10,6 +10,7 @@
   );
   --hero-text: #ffffff;
   --hero-text-muted: #d8e5ef;
+  --hero-accent: #ffb08a;
   --hero-control-border: rgba(255, 255, 255, 0.42);
   --hero-control-surface: rgba(255, 255, 255, 0.12);
   --hero-art-shadow: 0 16px 24px rgba(7, 43, 80, 0.36);
