@@ -2,7 +2,7 @@
 
 ## Goal
 
-This project serves a read-only domestic marathon calendar without an always-on server. GitHub Actions performs a daily public-web collection and GitHub Pages serves the resulting static artifact.
+This project serves a read-only domestic marathon calendar without an always-on server. GitHub Actions performs public-web collection on `main` pushes, a daily schedule, and manual dispatch; GitHub Pages serves the resulting static artifact.
 
 ## Runtime Flow
 
@@ -37,6 +37,7 @@ This project serves a read-only domestic marathon calendar without an always-on 
 | `src/main.ts` | Validated-data loading and hash-route coordination |
 | `src/page-model.ts` | `home`/`calendar` hash parsing and chronological month grouping |
 | `src/home-page.ts` | Semantic homepage composition and month sections |
+| `src/home-weather-model.ts`, `src/home-weather-client.ts`, `src/home-weather.ts`, `src/home-weather-icon.ts` | Typed weather/place/AQI parsing, one-session browser requests, semantic hero rendering, and condition SVGs |
 | `src/home-race-row.ts`, `src/home-art.ts` | Application-linked race rows and deterministic inline SVG art |
 | `src/home-menu.ts`, `src/home-month-selector.ts` | Mobile menu and semantic year/month selector DOM behavior |
 | `src/home-race-selection.ts` | Pure year/month option derivation and month-section selection |
@@ -47,7 +48,7 @@ This project serves a read-only domestic marathon calendar without an always-on 
 | `src/calendar*.css` | Calendar shell, controls, grid, and responsive styling |
 | `src/home*.css` | Homepage tokens, layout, controls, rows, and responsive styling |
 | `public/fonts/` | Project-relative Noto Sans KR WOFF2, OFL license, and font stylesheet |
-| `.github/workflows/deploy.yml` | Scheduled build and artifact Pages deployment |
+| `.github/workflows/deploy.yml` | Push, scheduled, and manual collection/build with artifact Pages deployment |
 
 ## Data Contract
 
@@ -96,5 +97,7 @@ Adapters must fail independently. A source outage produces metadata and a UI war
 - Course values are never inferred from race names, page-wide navigation text, or unrelated distance fragments.
 
 The default browser route is the homepage; `#/calendar` is the calendar and remains compatible with static GitHub Pages hosting. Homepage search, region/course/status/reset, and favorite controls are visible disabled/read-only previews. Homepage year/month selects retain every month section in the DOM: year limits sections to that year, month limits by month number within the selected year or across all years, and changing year resets month. A specific year or month focuses the first visible heading; empty data disables both selectors with honest options. Calendar filters remain active exact-AND controls; empty values are wildcards, filtering/reset preserve the displayed month, and only previous/next change it. `raceHref()` intentionally returns the schema-validated `applicationUrl`, including when `officialSiteUrl` is available, so race rows lead to the tested application destination.
+
+Homepage weather is a browser-only runtime boundary, separate from the build-time `races.json` pipeline. `home-weather-client.ts` requests low-accuracy browser geolocation once per application session, rounds successful coordinates to two decimal places, and starts one required Open-Meteo forecast request plus independent Open-Meteo air-quality and OpenStreetMap Nominatim reverse-geocode requests. `home-weather-model.ts` parses every external JSON boundary with Zod and reduces Nominatim output to city/district names before `home-weather.ts` renders it with visible attribution. The fixed Seoul City Hall fallback uses the known `서울특별시 중구` label without calling Nominatim. The shared promise prevents hash-route reconstruction from repeating location/API requests; disconnected panels are not mutated. Coordinates are not rendered, persisted, or logged. Air-quality or city lookup failures degrade only those fields, while a forecast failure remains isolated to the hero panel.
 
 Shared brand surfaces respond to `prefers-color-scheme` without changing routing or data. Base semantic dark values live in `style.css`; homepage/calendar-specific canvas, filters, borders, headings, links, thumbnails, and elevation live in `shared-brand-tokens.css`. The split prevents light surfaces from inheriting dark global text while retaining one token source per role.
