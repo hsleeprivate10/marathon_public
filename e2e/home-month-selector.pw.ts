@@ -5,6 +5,7 @@ import {
   fixtureShape,
   routeCollection,
 } from "./fixtures/collection.js";
+import { routeWeather } from "./fixtures/weather.js";
 import { observeErrors, optionValues, sectionMonths } from "./helpers/browser.js";
 
 const viewports = [375, 768, 1280] as const;
@@ -180,6 +181,7 @@ test("mobile race text has no single-character CJK final lines", async ({ page }
 test("project-scoped deployment loads local Korean fonts and favicon", async ({ page }) => {
   const pageErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
+  await routeWeather(page);
   await page.goto("./", { waitUntil: "networkidle" });
   await page.evaluate(() => document.fonts.ready);
 
@@ -208,6 +210,7 @@ test("project-scoped deployment loads local Korean fonts and favicon", async ({ 
 test("public races data loads without assuming calendar shape", async ({ page }) => {
   // Given the unmodified deployed races artifact,
   const signals = observeErrors(page);
+  await routeWeather(page);
 
   // When the production homepage loads without an E2E data route,
   await page.goto("./");

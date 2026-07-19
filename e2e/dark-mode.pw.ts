@@ -31,6 +31,7 @@ for (const width of widths) {
           border: style.getPropertyValue("--row-border").trim(),
           thumbnail: style.getPropertyValue("--thumbnail-sky").trim(),
           shadow: style.getPropertyValue("--row-shadow").trim(),
+          heroAccent: style.getPropertyValue("--hero-accent").trim(),
         };
       });
 
@@ -42,6 +43,7 @@ for (const width of widths) {
         text: tokens.text,
         border: tokens.border,
         thumbnail: tokens.thumbnail,
+        heroAccent: tokens.heroAccent,
       }).toEqual({
         canvas: "#101b27",
         surface: "#182838",
@@ -49,6 +51,7 @@ for (const width of widths) {
         text: "#e6edf3",
         border: "#38506a",
         thumbnail: "#29485f",
+        heroAccent: "#ffb08a",
       });
       expect(tokens.shadow).toMatch(/^0 12px 28px rgba\(0, 0, 0, (?:0)?\.32\)$/u);
       if (route === "") {
