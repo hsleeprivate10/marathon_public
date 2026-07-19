@@ -4,6 +4,7 @@ import "./home.css";
 import { bindHomepageMenu } from "./home-menu.js";
 import { createRaceSelectors, formatRaceMonth } from "./home-month-selector.js";
 import { createRaceRow } from "./home-race-row.js";
+import { createHomeWeather } from "./home-weather.js";
 import { groupRacesByMonth } from "./page-model.js";
 import { failedSourceNames } from "./source-labels.js";
 
@@ -101,23 +102,14 @@ export function createHomepage(
   const hero = element("section", "home-hero");
   const heroInner = element("div", "home-hero-inner");
   const copy = element("div", "home-hero-copy");
-  const headline = element("h1");
-  headline.append(
-    element("span", "home-hero-line", "달릴 날을 정하는"),
-    element("span", "home-hero-line", "선명한 방법"),
-  );
-  const heroLede = element("p", "home-hero-lede");
-  heroLede.append(
-    element("span", "home-hero-phrase", "전국 대회를 월별로 보고,"),
-    document.createTextNode(" "),
-    element("span", "home-hero-phrase", "공식 신청 페이지를 확인하세요."),
-  );
-  copy.append(element("p", "home-eyebrow", "2026 KOREA RACE GUIDE"), headline, heroLede);
+  copy.append(element("p", "home-eyebrow", "2026 KOREA RACE GUIDE"), createHomeWeather());
   const cta = element("a", "home-calendar-cta");
   cta.href = "#/calendar";
   cta.append(icon("calendar"), document.createTextNode("캘린더로 보기"));
   copy.append(cta);
-  heroInner.append(copy, heroArtwork());
+  const heroVisual = element("div", "home-hero-visual");
+  heroVisual.append(heroArtwork());
+  heroInner.append(copy, heroVisual);
   hero.append(heroInner);
   main.append(hero);
 
