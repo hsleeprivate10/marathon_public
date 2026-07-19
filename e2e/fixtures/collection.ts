@@ -1,5 +1,6 @@
 import type { Page } from "@playwright/test";
 import type { CollectionOutput, Race } from "../../src/contract.js";
+import { routeWeather } from "./weather.js";
 
 type RaceFixture = {
   readonly id: string;
@@ -112,6 +113,7 @@ export async function routeCollection(
   page: Page,
   collection: CollectionOutput = e2eCollection,
 ): Promise<void> {
+  await routeWeather(page);
   await page.route("**/races.json", async (route) => {
     await route.fulfill({ contentType: "application/json", body: JSON.stringify(collection) });
   });
