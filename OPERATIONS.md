@@ -7,7 +7,9 @@
 3. Open **Actions → Collect and deploy marathon calendar** and run it manually once.
 4. Confirm the deploy job reports a Pages URL and open `/races.json` on that URL.
 
-The workflow runs daily at `06:20 UTC`. GitHub schedules can be delayed, so `workflow_dispatch` is the recovery path for a missed schedule.
+The workflow runs on every `main` push and daily at `06:20 UTC`. GitHub schedules can be delayed, so `workflow_dispatch` is the recovery path for a missed schedule.
+
+Open-Meteo and OpenStreetMap Nominatim are non-blocking browser runtime dependencies, not part of the collection or Pages build. A forecast outage must produce only the hero's unavailable-weather message; air-quality and reverse-geocode outages must degrade only their own fields. None may block race data, navigation, or deployment. Browser geolocation denial, timeout, or lack of support must use the fixed Seoul fallback without calling Nominatim. Current-position reverse geocoding is limited to one end-user-triggered request per application session, carries the browser Referer, and displays OpenStreetMap attribution. Keep aggregate traffic well below the public Nominatim limit of one request per second; use a caching proxy or replace the provider before traffic approaches that limit.
 
 ## Local Release Check
 

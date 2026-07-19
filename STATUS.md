@@ -16,6 +16,7 @@
 - Added optional verified `officialSiteUrl`, conservative race-bound link discovery across all eight adapters, and post-deduplication official-page enrichment.
 - Unified `applicationUrl` and `officialSiteUrl` publication behind one public non-payment URL policy, including dedicated payment host and payment/checkout/billing/purchase path rejection.
 - Added a global 40 official candidate loader-invocation budget without limiting published races, plus zero-network local fixture mappings and live-only SSRF/redirect/content/body safety boundaries.
+- Added a homepage weather panel with current city/district, temperature, humidity, cloud cover, wind, precipitation, US AQI, PM2.5, and PM10. Browser location uses two-decimal coordinates, falls back to `서울특별시 중구`, and keeps forecast, city lookup, and air-quality failures isolated.
 
 ## Fresh Verification Evidence
 
@@ -29,6 +30,8 @@ Exact JSON-LD Event typing and extension-suffixed private path verification is r
 
 Failure QA exercised both an absent official fixture index and a present index with a missing URL mapping. Both retained the base race, produced schema-valid output with zero accepted enrichment, made zero live official fetch calls, and removed their temporary directories. The absent index correctly made the enrichment stage unsuccessful; the ordinary missing-mapping rejection did not. The existing Todo 9 production Playwright evidence remains the browser proof for fixed-month filters and official/application link selection; Todo 10 changed documentation only and did not rerun the UI.
 
+On 2026-07-19, the weather and location release checks passed: Bun and Vitest each passed 710 tests across 39 files; TypeScript strict checking, Biome, the TypeScript no-excuse checker, and the production Vite build passed; Playwright passed 29 production browser scenarios. Six fresh weather captures cover 375px, 768px, and 1280px in light and dark modes, and two independent visual reviews found no clipping, overflow, CJK wrapping, logo overlap, or runner overlap.
+
 ## Known Gaps
 
 - Region inference is deliberately conservative: it only classifies venues that explicitly mention a province or metropolitan city. Unclassified races remain available under the all-regions view.
@@ -37,10 +40,11 @@ Failure QA exercised both an absent official fixture index and a present index w
 - Official identity and field parsing are limited to explicit received HTML/JSON-LD; the collector does not execute JavaScript, log in, submit forms, or follow registration/payment flows.
 - The collector has no persisted historical baseline by design. It cannot show what changed between days.
 - `races.json` is an artifact, not a committed repository file. A remote GitHub Actions run is needed to validate Pages deployment.
+- Public Nominatim usage is suitable only while aggregate end-user traffic remains well below one request per second. Move city lookup behind a caching proxy or replace the provider before traffic approaches that limit.
 
 ## Recommended Next Agent Steps
 
-1. Review the dirty worktree and Todo 10 evidence before deciding on any commit; this task intentionally creates no commit.
-2. Configure GitHub Pages and run `workflow_dispatch` once when remote deployment verification is desired.
+1. Confirm the GitHub Actions Pages run completes after the weather release push.
+2. Run `workflow_dispatch` when remote deployment verification or an immediate data refresh is desired.
 3. Refresh the affected adapter fixture, official-page fixture mapping, and red-green parser test whenever public markup changes.
 4. Expand region inference only when a new, reliable venue-to-region source becomes available.
