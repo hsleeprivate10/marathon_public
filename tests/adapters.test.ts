@@ -13,7 +13,6 @@ import {
 } from "../src/adapters/marathonmoa.js";
 import { RunningMapAdapter } from "../src/adapters/runningmap.js";
 import type { SourceAdapter } from "../src/adapters/types.js";
-import { RaceSchema } from "../src/contract.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FIXTURES_DIR = resolve(__dirname, "fixtures");
@@ -36,23 +35,21 @@ async function collectFromFixture(adapter: SourceAdapter) {
 }
 
 describe("GoRunning adapter", () => {
-  it("collects races from fixture HTML", async () => {
+  it("discovers source-detail candidates from fixture HTML", async () => {
     const result = await collectFromFixture(GoRunningAdapter);
     expect(result.metadata.id).toBe("gorunning");
     expect(result.metadata.attempted).toBe(true);
-    // GoRunning fixture has race list links
-    expect(result.races.length).toBeGreaterThanOrEqual(1);
-    for (const race of result.races) {
-      const parsed = RaceSchema.safeParse(race);
-      expect(parsed.success).toBe(true);
-    }
+    expect(result).not.toHaveProperty("races");
+    expect(result).not.toHaveProperty("discoveredLinks");
+    expect(result.discoveryCandidates.length).toBeGreaterThanOrEqual(1);
+    expect(result.stageCounters.discoveryCandidates).toBe(result.discoveryCandidates.length);
   });
 
-  it("populates prices when detail pages available", async () => {
+  it("does not publish courses or prices from list/detail pages", async () => {
     const result = await collectFromFixture(GoRunningAdapter);
-    const withPrices = result.races.filter((r) => r.courses.some((c) => c.price !== null));
-    expect(withPrices.length).toBeGreaterThanOrEqual(1);
-    expect(result.races[0]?.courses.map((course) => course.name)).toEqual(["풀", "하프", "10K"]);
+    expect(result.discoveryCandidates[0]).not.toHaveProperty("courses");
+    expect(result.discoveryCandidates[0]).not.toHaveProperty("venue");
+    expect(result.discoveryCandidates[0]).not.toHaveProperty("applicationUrl");
   });
 
   it("does not make live requests when fixtureDir is provided", async () => {
@@ -60,33 +57,26 @@ describe("GoRunning adapter", () => {
     expect(result.metadata.succeeded).toBe(true);
   });
 
-  it("retains legacy list data when its detail fixture is missing", async () => {
+  it("fails closed when a legacy detail fixture is missing", async () => {
     const result = await GoRunningAdapter.collect({
       fixtureDir: `${FIXTURES_DIR}/gorunning/missing-detail`,
       detailBudget: 5,
     });
 
-    expect(result.races).toHaveLength(1);
-    expect(result.races[0]).toMatchObject({
-      name: "제31회 누락고런마라톤",
-      eventDate: "2026-09-20",
-      venue: "서울 한강공원",
-      verified: false,
-    });
+    expect(result.discoveryCandidates).toHaveLength(1);
+    expect(result.discoveredOfficialCandidates).toEqual([]);
+    expect(result.stageCounters).toMatchObject({ rejectedCandidates: 1, sourceDetailsFetched: 0 });
   });
 });
 
 describe("KorMarathon adapter", () => {
-  it("collects races from SSR HTML fixture", async () => {
+  it("discovers source-detail candidates from SSR HTML fixture", async () => {
     const result = await collectFromFixture(KorMarathonAdapter);
     expect(result.metadata.id).toBe("kormarathon");
     expect(result.metadata.attempted).toBe(true);
-    // Real KorMarathon HTML contains RSC payload
-    expect(result.races.length).toBeGreaterThanOrEqual(0);
-    for (const race of result.races) {
-      const parsed = RaceSchema.safeParse(race);
-      expect(parsed.success).toBe(true);
-    }
+    expect(result).not.toHaveProperty("races");
+    expect(result).not.toHaveProperty("discoveredLinks");
+    expect(result.discoveryCandidates.length).toBeGreaterThanOrEqual(0);
   });
 
   it("never fails the pipeline even with minimal data", async () => {
@@ -97,30 +87,22 @@ describe("KorMarathon adapter", () => {
 });
 
 describe("e-Marathon adapter", () => {
-  it("collects races with body-text prices", async () => {
+  it("discovers candidates without publishing body-text prices", async () => {
     const result = await collectFromFixture(EMarathonAdapter);
     expect(result.metadata.id).toBe("emarathon");
     expect(result.metadata.attempted).toBe(true);
-    expect(result.races.length).toBeGreaterThanOrEqual(1);
-    expect(result.races[0]?.name).toBe("2025 인천국제마라톤대회");
-    expect(result.races[0]?.eventDate).toBe("2025-04-13");
-    for (const race of result.races) {
-      const parsed = RaceSchema.safeParse(race);
-      expect(parsed.success).toBe(true);
-      // e-Marathon prices come from body text
-      for (const course of race.courses) {
-        if (course.price !== null) {
-          expect(course.priceSource).toBe("body-text");
-        }
-      }
-      expect(["풀", "하프", "10K", "5K"]).toContain(race.courses[0]?.name);
-    }
+    expect(result).not.toHaveProperty("races");
+    expect(result.discoveryCandidates.length).toBeGreaterThanOrEqual(1);
+    expect(result.discoveryCandidates[0]).not.toHaveProperty("courses");
+    expect(result.discoveryCandidates[0]).not.toHaveProperty("venue");
   });
 
-  it("preserves absolute detail URLs", async () => {
+  it("preserves absolute detail URLs as source-detail candidates only", async () => {
     const result = await collectFromFixture(EMarathonAdapter);
 
-    expect(result.races[0]?.applicationUrl).toBe("https://emarathon.or.kr/race/view/201");
+    expect(result.discoveryCandidates[0]?.sourceDetailUrl).toBe(
+      "https://emarathon.or.kr/race/view/9101",
+    );
   });
 });
 
@@ -130,67 +112,71 @@ describe("Maedal adapter", () => {
     expect(result.metadata.id).toBe("maedal");
     expect(result.metadata.attempted).toBe(true);
     expect(result.metadata.succeeded).toBe(true);
-    expect(result.races.every((race) => race.eventDate !== "2025-01-01")).toBe(true);
-    for (const race of result.races) {
-      const parsed = RaceSchema.safeParse(race);
-      expect(parsed.success).toBe(true);
-      expect(race.courses).toEqual([]);
-      // Should have metadata-only note
-      expect(race.notes).toContain("Maedal");
-      expect(race.verified).toBe(false);
-    }
+    expect(result).not.toHaveProperty("races");
+    expect(result).not.toHaveProperty("discoveredLinks");
+    expect(result.discoveryCandidates.length).toBeGreaterThanOrEqual(1);
+    expect(
+      result.discoveryCandidates.every((candidate) =>
+        candidate.identityEvidence.dateHints.every((date) => date !== "2025-01-01"),
+      ),
+    ).toBe(true);
   });
 });
 
 describe("KAAF adapter", () => {
-  it("extracts verification-only events from ASP fixture", async () => {
+  it("returns candidate-only output from ASP fixture", async () => {
     const result = await collectFromFixture(KaafAdapter);
     expect(result.metadata.id).toBe("kaaf");
     expect(result.metadata.attempted).toBe(true);
-    // KAAF ASP page may have no marathon links
-    expect(result.races.length).toBeGreaterThanOrEqual(0);
-    for (const race of result.races) {
-      const parsed = RaceSchema.safeParse(race);
-      expect(parsed.success).toBe(true);
-      expect(race.notes).toContain("KAAF");
-      expect(race.courses).toEqual([]);
-    }
+    expect(result).not.toHaveProperty("races");
+    expect(result).not.toHaveProperty("discoveredLinks");
+    expect(result.discoveryCandidates.length).toBeGreaterThanOrEqual(0);
   });
 
-  it("marks all races as unverified", async () => {
+  it("publishes no races while exposing safe official candidates", async () => {
     const result = await collectFromFixture(KaafAdapter);
-    for (const race of result.races) {
-      expect(race.verified).toBe(false);
-    }
+    expect(result.metadata.succeeded).toBe(true);
+    expect(result).not.toHaveProperty("races");
+    expect(result).not.toHaveProperty("discoveredLinks");
+    expect(result.discoveredOfficialCandidates.length).toBeGreaterThanOrEqual(1);
+    expect(result.stageCounters.discoveredOfficialCandidates).toBe(
+      result.discoveredOfficialCandidates.length,
+    );
   });
 });
 
 describe("Marathon Moa adapter", () => {
-  it("collects races from community fixture", async () => {
+  it("does not publish community records that only have a generic source path", async () => {
     const result = await collectFromFixture(MarathonMoaAdapter);
     expect(result.metadata.id).toBe("marathonmoa");
     expect(result.metadata.attempted).toBe(true);
-    expect(result.races.length).toBeGreaterThanOrEqual(1);
-    for (const race of result.races) {
-      const parsed = RaceSchema.safeParse(race);
-      expect(parsed.success).toBe(true);
-      expect(race.notes).toContain("Marathon Moa");
-      expect(race.courses).toEqual([]);
-    }
+    expect(result).not.toHaveProperty("races");
+    expect(result).not.toHaveProperty("discoveredLinks");
+    expect(result.discoveryCandidates.length).toBeGreaterThanOrEqual(1);
   });
 
-  it("uses the registration URL embedded in the public RSC payload", async () => {
+  it("ignores registration URLs embedded in the public RSC payload", async () => {
     const result = await MarathonMoaAdapter.collect({
       fixtureDir: `${FIXTURES_DIR}/marathonmoa/registration-rsc`,
       detailBudget: 0,
     });
 
-    expect(result.races[0]?.applicationUrl).toBe("https://apply.example.com/register");
-    expect(
-      result.discoveredLinks.filter(
-        (link) => link.kind === "application" && new URL(link.url).hostname === "marathon.me.kr",
-      ),
-    ).toEqual([]);
+    expect(result).not.toHaveProperty("races");
+    expect(result).not.toHaveProperty("discoveredLinks");
+    expect(result.discoveredOfficialCandidates).toEqual([]);
+  });
+
+  it("rejects an embedded generic organizer homepage as an official candidate", async () => {
+    const result = await MarathonMoaAdapter.collect({
+      fixtureDir: `${FIXTURES_DIR}/marathonmoa/registration-root`,
+      detailBudget: 0,
+    });
+
+    expect(result).not.toHaveProperty("races");
+    expect(result).not.toHaveProperty("discoveredLinks");
+    expect(result.discoveredOfficialCandidates.map((link) => link.url)).not.toContain(
+      "https://generic-organizer.example/",
+    );
   });
 
   it("maps registration URLs from neighboring RSC event records", () => {
@@ -204,28 +190,25 @@ describe("Marathon Moa adapter", () => {
 });
 
 describe("RunningMap adapter", () => {
-  it("does not publish map links without a real event date", async () => {
+  it("discovers only source-detail candidates from dated list entries", async () => {
     const result = await collectFromFixture(RunningMapAdapter);
     expect(result.metadata.id).toBe("runningmap");
     expect(result.metadata.attempted).toBe(true);
-    expect(result.races).toEqual([]);
-    for (const race of result.races) {
-      const parsed = RaceSchema.safeParse(race);
-      expect(parsed.success).toBe(true);
-      expect(race.courses).toEqual([]);
-    }
+    expect(result).not.toHaveProperty("races");
+    expect(result).not.toHaveProperty("discoveredLinks");
+    expect(result.discoveryCandidates.length).toBeGreaterThanOrEqual(1);
   });
 });
 
 describe("MarathonMate adapter", () => {
-  it("does not treat race-finder links as races", async () => {
+  it("does not treat race-finder links as source-detail candidates", async () => {
     const result = await collectFromFixture(MarathonMateAdapter);
     expect(result.metadata.id).toBe("marathonmate");
     expect(result.metadata.attempted).toBe(true);
-    // MarathonMate homepage is just a redirect, no race data
-    expect(result.races.length).toBe(0);
+    expect(result).not.toHaveProperty("races");
+    expect(result).not.toHaveProperty("discoveredLinks");
+    expect(result.discoveryCandidates.length).toBeGreaterThanOrEqual(1);
     expect(result.metadata.succeeded).toBe(true);
-    expect(result.metadata.message).toContain("No races found");
   });
 });
 
@@ -234,15 +217,19 @@ describe("Adapter result contract", () => {
     it(`${adapter.id}: returns discovered links outside public races`, async () => {
       const result = await collectFromFixture(adapter);
 
-      expect(result.discoveredLinks).toEqual([]);
-      for (const race of result.races) {
-        expect(race.eventDate).not.toBe("2025-01-01");
-        expect(race).not.toHaveProperty("dedupKey");
-        expect(race).not.toHaveProperty("kind");
-        expect(race).not.toHaveProperty("url");
-        expect(race).not.toHaveProperty("sourceId");
-        expect(race).not.toHaveProperty("sourcePageUrl");
-        expect(race).not.toHaveProperty("evidence");
+      if (adapter.id === "kaaf") {
+        expect(result).not.toHaveProperty("races");
+        expect(result).not.toHaveProperty("discoveredLinks");
+        expect(result.discoveredOfficialCandidates.length).toBeGreaterThanOrEqual(1);
+        return;
+      }
+      expect(result).not.toHaveProperty("races");
+      expect(result).not.toHaveProperty("discoveredLinks");
+      for (const candidate of result.discoveryCandidates) {
+        expect(candidate.identityEvidence.dateHints).not.toContain("2025-01-01");
+        expect(candidate).not.toHaveProperty("courses");
+        expect(candidate).not.toHaveProperty("venue");
+        expect(candidate).not.toHaveProperty("applicationUrl");
       }
     });
   }
@@ -259,8 +246,13 @@ describe("All adapters fail gracefully with missing fixtures", () => {
       expect(result.metadata.attempted).toBe(true);
       expect(result.metadata.succeeded).toBe(false);
       expect(result.metadata.recordCount).toBe(0);
-      expect(result.races).toHaveLength(0);
-      expect(result.discoveredLinks).toEqual([]);
+      if (adapter.id === "kaaf") {
+        expect(result.discoveryCandidates).toEqual([]);
+        expect(result.discoveredOfficialCandidates).toEqual([]);
+        return;
+      }
+      expect(result.discoveryCandidates).toEqual([]);
+      expect(result.discoveredOfficialCandidates).toEqual([]);
     });
   }
 });

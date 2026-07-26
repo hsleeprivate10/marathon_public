@@ -1,6 +1,11 @@
 import { readFile } from "node:fs/promises";
 import ky from "ky";
-import type { Race, SourceRecord } from "../contract.js";
+import { z } from "zod";
+import type { SourceRecord } from "../contract.js";
+import {
+  safeOfficialPageUrl,
+  safeRaceApplicationUrl,
+} from "../official-sites/application-url-policy.js";
 
 /** User-Agent sent with every outbound request */
 export const USER_AGENT = "MarathonDataBot/1.0 (+contact: marathon-data-collector)";
@@ -28,24 +33,107 @@ export interface CollectConfig {
   readonly detailBudget: number | undefined;
 }
 
-export interface DiscoveredRaceLink {
-  readonly dedupKey: string;
-  readonly kind: "official-site" | "application";
-  readonly url: string;
-  readonly sourceId: string;
-  readonly sourcePageUrl: string;
-  readonly evidence: "explicit-label" | "structured-event" | "structured-organizer";
+const SourceIdSchema = z.string().min(1).brand<"SourceId">();
+const SourceResultUrlSchema = z.string().url().brand<"SourceResultUrl">();
+const SourceDetailUrlSchema = z.string().url().brand<"SourceDetailUrl">();
+const TransientIdentityHintSchema = z.string().min(1).brand<"TransientIdentityHint">();
+const DiscoveredOfficialUrlSchema = z.string().url().brand<"DiscoveredOfficialUrl">();
+const DiscoveredApplicationUrlSchema = z.string().url().brand<"DiscoveredApplicationUrl">();
+
+export type SourceId = z.infer<typeof SourceIdSchema>;
+export type SourceResultUrl = z.infer<typeof SourceResultUrlSchema>;
+export type SourceDetailUrl = z.infer<typeof SourceDetailUrlSchema>;
+export type TransientIdentityHint = z.infer<typeof TransientIdentityHintSchema>;
+export type DiscoveredOfficialUrl = z.infer<typeof DiscoveredOfficialUrlSchema>;
+export type DiscoveredApplicationUrl = z.infer<typeof DiscoveredApplicationUrlSchema>;
+
+export function sourceId(value: string): SourceId {
+  return SourceIdSchema.parse(value);
 }
 
-/**
- * Result of collecting from a single source adapter.
- */
+export function sourceResultUrl(value: string): SourceResultUrl {
+  return SourceResultUrlSchema.parse(value);
+}
+
+export function sourceDetailUrl(value: string): SourceDetailUrl {
+  return SourceDetailUrlSchema.parse(value);
+}
+
+export function transientIdentityHint(value: string): TransientIdentityHint {
+  return TransientIdentityHintSchema.parse(value);
+}
+
+export function discoveredOfficialUrl(value: string): DiscoveredOfficialUrl | null {
+  const safeUrl = safeRaceApplicationUrl(value);
+  return safeUrl === null ? null : DiscoveredOfficialUrlSchema.parse(safeUrl);
+}
+
+export function discoveredOfficialHomepageUrl(value: string): DiscoveredOfficialUrl | null {
+  const safeUrl = safeOfficialPageUrl(value);
+  return safeUrl === null ? null : DiscoveredOfficialUrlSchema.parse(safeUrl);
+}
+
+export function discoveredApplicationUrl(value: string): DiscoveredApplicationUrl | null {
+  const safeUrl = safeRaceApplicationUrl(value);
+  return safeUrl === null ? null : DiscoveredApplicationUrlSchema.parse(safeUrl);
+}
+
+export type TransientRaceIdentityEvidence = {
+  readonly titleHints: readonly TransientIdentityHint[];
+  readonly dateHints: readonly TransientIdentityHint[];
+  readonly organizerHints: readonly TransientIdentityHint[];
+};
+
+export type SourceDiscoveryCandidate = {
+  readonly sourceId: SourceId;
+  readonly sourceResultUrl?: SourceResultUrl;
+  readonly sourceDetailUrl: SourceDetailUrl;
+  readonly identityEvidence: TransientRaceIdentityEvidence;
+};
+
+type DiscoveredRaceLinkBase = {
+  readonly dedupKey: TransientIdentityHint;
+  readonly sourceId: SourceId;
+  readonly sourceResultUrl?: SourceResultUrl;
+  readonly sourceDetailUrl?: SourceDetailUrl;
+  readonly identityEvidence: TransientRaceIdentityEvidence;
+  readonly evidence: "explicit-label" | "structured-event" | "structured-organizer";
+};
+
+export type DiscoveredRaceLink =
+  | (DiscoveredRaceLinkBase & {
+      readonly kind: "official-site";
+      readonly url: DiscoveredOfficialUrl;
+    })
+  | (DiscoveredRaceLinkBase & {
+      readonly kind: "application";
+      readonly url: DiscoveredApplicationUrl;
+    });
+
+export type AdapterStageCounters = {
+  readonly discoveryCandidates: number;
+  readonly sourceDetailsFetched: number;
+  readonly discoveredOfficialCandidates: number;
+  readonly rejectedCandidates: number;
+  readonly budgetSkipped: number;
+};
+
 export interface AdapterResult {
-  /** Collected (and possibly partial) race records */
-  readonly races: ReadonlyArray<Race>;
-  readonly discoveredLinks: ReadonlyArray<DiscoveredRaceLink>;
-  /** Source metadata for the collectionMetadata array */
+  readonly discoveryCandidates: readonly SourceDiscoveryCandidate[];
+  readonly discoveredOfficialCandidates: readonly DiscoveredRaceLink[];
   readonly metadata: SourceRecord;
+  readonly stageCounters: AdapterStageCounters;
+}
+
+export function preferredDiscoveredRaceUrl(
+  links: readonly DiscoveredRaceLink[],
+): string | undefined {
+  for (const link of links) {
+    if (link.kind !== "application") continue;
+    const safeUrl = safeRaceApplicationUrl(link.url);
+    if (safeUrl !== null) return safeUrl;
+  }
+  return undefined;
 }
 
 /**
