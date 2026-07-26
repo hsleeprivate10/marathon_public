@@ -1,14 +1,32 @@
 import type { Course, Race } from "../contract.js";
-import { computeRegistrationStatus } from "../contract.js";
+import { computeRegistrationStatus, isValidIsoDate } from "../contract.js";
 import { canonicalCourses } from "../courses.js";
-import { safeApplicationUrl, safeOfficialPageUrl } from "./application-url-policy.js";
-import { type IdentityRejectReason, checkOfficialPageIdentity } from "./identity.js";
+import { selectRaceLogoCandidate } from "../race-logo-candidates.js";
+import { safeOfficialPageUrl, safeRaceApplicationUrl } from "./application-url-policy.js";
+import {
+  type IdentityRejectReason,
+  type IdentitySelection,
+  checkOfficialPageIdentity,
+} from "./identity.js";
 import type { OfficialPageData } from "./parser.js";
 
-export type OfficialMergeRejectReason = IdentityRejectReason | "unsafe-official-url";
+export type OfficialMergeRejectReason =
+  | IdentityRejectReason
+  | "unsafe-official-url"
+  | "missing-event-date"
+  | "missing-venue";
 export type OfficialMergeOutcome =
   | { readonly accepted: true; readonly race: Race }
-  | { readonly accepted: false; readonly reason: OfficialMergeRejectReason; readonly race: Race };
+  | { readonly accepted: false; readonly reason: OfficialMergeRejectReason };
+
+type SelectedOfficialFields = {
+  readonly name: string | null;
+  readonly eventDate: string | null;
+  readonly venue: string | null;
+  readonly registrationDeadline: string | null;
+  readonly courses: readonly Course[];
+  readonly registrationUrl: string | null;
+};
 
 export function mergeOfficialPage(
   race: Race,
@@ -17,51 +35,71 @@ export function mergeOfficialPage(
   verifiedAt = new Date().toISOString(),
 ): OfficialMergeOutcome {
   const officialSiteUrl = safeOfficialPageUrl(finalOfficialSiteUrl);
-  if (officialSiteUrl === null) return { accepted: false, reason: "unsafe-official-url", race };
+  if (officialSiteUrl === null) return { accepted: false, reason: "unsafe-official-url" };
   const identity = checkOfficialPageIdentity(race, page);
-  if (!identity.accepted) return { accepted: false, reason: identity.reason, race };
+  if (!identity.accepted) return { accepted: false, reason: identity.reason };
   const selected = selectedFields(page, identity.selection);
-  const registrationDeadline = selected.registrationDeadline ?? race.registrationDeadline;
+  if (selected.eventDate === null) return { accepted: false, reason: "missing-event-date" };
+  if (!isValidIsoDate(selected.eventDate)) return { accepted: false, reason: "invalid-date" };
+  if (selected.venue === null) return { accepted: false, reason: "missing-venue" };
+  const logoUrl = selectRaceLogoCandidate(page.logoCandidates ?? [], {
+    name: selected.name ?? race.name,
+    eventDate: selected.eventDate,
+  });
+  const registrationDeadline = selected.registrationDeadline;
+  const applicationUrl = safeRaceApplicationUrl(selected.registrationUrl) ?? officialSiteUrl;
   return {
     accepted: true,
     race: {
-      ...race,
+      name: selected.name ?? race.name,
+      eventDate: selected.eventDate,
       registrationDeadline,
-      venue: selected.venue ?? race.venue,
-      courses: mergeCourses(race.courses, selected.courses),
-      applicationUrl: safeApplicationUrl(selected.registrationUrl) ?? race.applicationUrl,
+      venue: selected.venue,
+      courses: canonicalCourses(selected.courses),
+      applicationUrl,
+      ...(logoUrl === undefined ? {} : { logoUrl }),
       officialSiteUrl,
+      sources: ["official-sites"],
       verified: true,
       lastVerified: verifiedAt,
       updatedAt: verifiedAt,
-      registrationStatus: computeRegistrationStatus(registrationDeadline, race.eventDate),
+      generatedAt: race.generatedAt,
+      registrationStatus: computeRegistrationStatus(registrationDeadline, selected.eventDate),
     },
   };
 }
 
 function selectedFields(
   page: OfficialPageData,
-  selection: import("./identity.js").IdentitySelection,
-) {
-  if (selection.kind === "event") {
-    const useBody = selection.bodyAssociated;
-    return {
-      venue: selection.event.venue ?? (useBody ? page.bodyVenue : null),
-      registrationDeadline:
-        selection.event.registrationDeadline ?? (useBody ? page.bodyRegistrationDeadline : null),
-      courses: useBody
-        ? supplementCourses(selection.event.courses, page.bodyCourses ?? [])
-        : selection.event.courses,
-      registrationUrl:
-        selection.event.registrationUrl ?? (useBody ? (page.bodyRegistrationUrl ?? null) : null),
-    };
+  selection: IdentitySelection,
+): SelectedOfficialFields {
+  switch (selection.kind) {
+    case "event": {
+      const useBody = selection.bodyAssociated;
+      return {
+        name: selection.event.name,
+        eventDate: selection.event.eventDate ?? (useBody ? first(page.bodyEventDates ?? []) : null),
+        venue: selection.event.venue ?? (useBody ? (page.bodyVenue ?? null) : null),
+        registrationDeadline:
+          selection.event.registrationDeadline ??
+          (useBody ? (page.bodyRegistrationDeadline ?? null) : null),
+        courses: useBody
+          ? supplementCourses(selection.event.courses, page.bodyCourses ?? [])
+          : selection.event.courses,
+        registrationUrl:
+          selection.event.registrationUrl ?? (useBody ? (page.bodyRegistrationUrl ?? null) : null),
+      };
+    }
+    case "body":
+      return {
+        name: first(page.bodyNames ?? []) ?? first(page.names),
+        eventDate: first(page.bodyEventDates ?? []) ?? page.eventDate,
+        venue: page.bodyVenue ?? page.venue ?? null,
+        registrationDeadline: page.bodyRegistrationDeadline ?? page.registrationDeadline ?? null,
+        courses: page.bodyCourses ?? page.courses,
+        registrationUrl: page.bodyRegistrationUrl ?? page.registrationUrl ?? null,
+      };
   }
-  return {
-    venue: page.bodyVenue ?? page.venue ?? null,
-    registrationDeadline: page.bodyRegistrationDeadline ?? page.registrationDeadline ?? null,
-    courses: page.bodyCourses ?? page.courses ?? [],
-    registrationUrl: page.bodyRegistrationUrl ?? page.registrationUrl ?? null,
-  };
 }
 
 function supplementCourses(
@@ -72,16 +110,6 @@ function supplementCourses(
   return [...official, ...body.filter((course) => !names.has(course.name))];
 }
 
-function mergeCourses(existing: readonly Course[], official: readonly Course[]): Course[] {
-  const merged = new Map<Course["name"], Course>();
-  for (const course of canonicalCourses(existing)) merged.set(course.name, course);
-  for (const course of canonicalCourses(official)) {
-    const current = merged.get(course.name);
-    if (current === undefined) {
-      merged.set(course.name, course);
-    } else if (course.price !== null) {
-      merged.set(course.name, course);
-    }
-  }
-  return [...merged.values()];
+function first(values: readonly string[]): string | null {
+  return values[0] ?? null;
 }

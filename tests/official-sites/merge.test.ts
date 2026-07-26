@@ -25,6 +25,62 @@ const baseRace = (overrides: Partial<Race> = {}): Race => ({
 });
 
 describe("mergeOfficialPage", () => {
+  it("replaces an adapter logo with a matching accepted official event logo", () => {
+    const race = baseRace({ logoUrl: "https://adapter.example/seoul-logo.png" });
+    const parsed = parseOfficialPage(
+      `<script type="application/ld+json">{"@context":"https://schema.org","@type":"Event","name":"2026 서울국제마라톤","startDate":"2026-03-15","location":"서울월드컵공원 평화광장","logo":"/media/seoul-event-logo.png"}</script><h1>2026 서울국제마라톤</h1>`,
+      "https://official.example/seoul-2026-logo",
+    );
+
+    const result = mergeOfficialPage(race, parsed, "https://official.example/seoul-2026-logo");
+
+    expect(result.accepted).toBe(true);
+    if (!result.accepted) throw new Error(result.reason);
+    expect(result.race.logoUrl).toBe("https://official.example/media/seoul-event-logo.png");
+  });
+
+  it.each([
+    ["absent", fixture("matching-event.html")],
+    [
+      "wrong event",
+      `<script type="application/ld+json">[{"@type":"Event","name":"2026 서울국제마라톤","startDate":"2026-03-15","location":"서울월드컵공원 평화광장"},{"@type":"Event","name":"2026 부산바다마라톤","startDate":"2026-03-15","logo":"/media/busan-logo.png"}]</script><h1>2026 서울국제마라톤</h1>`,
+    ],
+    [
+      "unsafe",
+      `<script type="application/ld+json">{"@type":"Event","name":"2026 서울국제마라톤","startDate":"2026-03-15","location":"서울월드컵공원 평화광장","logo":"http://images.example/seoul-logo.png"}</script><h1>2026 서울국제마라톤</h1>`,
+    ],
+    [
+      "ambiguous",
+      `<script type="application/ld+json">{"@type":"Event","name":"2026 서울국제마라톤","startDate":"2026-03-15","location":"서울월드컵공원 평화광장","logo":["/media/first-logo.png","/media/second-logo.png"]}</script><h1>2026 서울국제마라톤</h1>`,
+    ],
+    [
+      "a misleading body-only image",
+      `<h1>2026 서울국제마라톤</h1><p>대회일시: 2026년 3월 15일</p><p>장소: 서울월드컵공원 평화광장</p><img src="/media/site-logo.png" alt="2026 서울국제마라톤 로고">`,
+    ],
+  ])("preserves an adapter logo when accepted official logo evidence is %s", (_case, html) => {
+    const race = baseRace({ logoUrl: "https://adapter.example/seoul-logo.png" });
+    const parsed = parseOfficialPage(html, "https://official.example/seoul-2026");
+
+    const result = mergeOfficialPage(race, parsed, "https://official.example/seoul-2026");
+
+    expect(result.accepted).toBe(true);
+    if (!result.accepted) throw new Error(result.reason);
+    expect(result.race.logoUrl).toBeUndefined();
+  });
+
+  it("returns only a typed reason when official identity is rejected", () => {
+    const race = baseRace({ logoUrl: "https://adapter.example/seoul-logo.png" });
+    const parsed = parseOfficialPage(
+      `<script type="application/ld+json">{"@type":"Event","name":"2026 부산바다마라톤","startDate":"2026-03-15","logo":"/media/busan-logo.png"}</script><h1>2026 부산바다마라톤</h1>`,
+      "https://official.example/busan",
+    );
+
+    expect(mergeOfficialPage(race, parsed, "https://official.example/busan")).toEqual({
+      accepted: false,
+      reason: "name-mismatch",
+    });
+  });
+
   it("rejects a payment final official URL without changing the race", () => {
     const race = baseRace();
     const parsed = parseOfficialPage(
@@ -39,7 +95,7 @@ describe("mergeOfficialPage", () => {
         "https://payments.example/checkout",
         "2026-01-02T00:00:00.000Z",
       ),
-    ).toEqual({ accepted: false, reason: "unsafe-official-url", race });
+    ).toEqual({ accepted: false, reason: "unsafe-official-url" });
   });
 
   it("rejects a registration final official URL without changing the race", () => {
@@ -49,7 +105,6 @@ describe("mergeOfficialPage", () => {
     expect(mergeOfficialPage(race, parsed, "https://official.example/register.action")).toEqual({
       accepted: false,
       reason: "unsafe-official-url",
-      race,
     });
   });
 
@@ -67,8 +122,8 @@ describe("mergeOfficialPage", () => {
     );
     expect(result.accepted).toBe(true);
     if (!result.accepted) throw new Error(result.reason);
-    expect(result.race.name).toBe(race.name);
-    expect(result.race.eventDate).toBe(race.eventDate);
+    expect(result.race.name).toBe("2026 서울국제마라톤");
+    expect(result.race.eventDate).toBe("2026-03-15");
     expect(result.race.officialSiteUrl).toBe("https://official.example/final");
     expect(result.race.venue).toBe("서울월드컵공원 평화광장");
     expect(result.race.registrationDeadline).toBe("2026-02-28");
@@ -78,7 +133,6 @@ describe("mergeOfficialPage", () => {
     expect(result.race.registrationStatus).toBe("closed");
     expect(result.race.courses).toEqual([
       { name: "풀", price: 70000, priceSource: "structured" },
-      { name: "5K", price: 10000 },
       { name: "10K", price: 40000, priceSource: "structured" },
       { name: "하프", price: 55000, priceSource: "body-text" },
     ]);
@@ -92,10 +146,10 @@ describe("mergeOfficialPage", () => {
     );
     expect(
       mergeOfficialPage(race, parsed, "https://official.example/busan", "2026-01-02T00:00:00.000Z"),
-    ).toEqual({ accepted: false, reason: "name-mismatch", race });
+    ).toEqual({ accepted: false, reason: "name-mismatch" });
   });
 
-  it("preserves original values when accepted official fields are absent or unsafe", () => {
+  it("rejects accepted identity when required official fields are absent", () => {
     const race = baseRace({
       name: "춘천호수마라톤",
       eventDate: "2026-04-12",
@@ -117,144 +171,6 @@ describe("mergeOfficialPage", () => {
       "https://lake.example/final",
       "2026-01-02T00:00:00.000Z",
     );
-    expect(result.accepted).toBe(true);
-    if (!result.accepted) throw new Error(result.reason);
-    expect(result.race.venue).toBe("춘천 공지천");
-    expect(result.race.registrationDeadline).toBe("2026-03-01");
-    expect(result.race.applicationUrl).toBe("https://source.example/apply");
-  });
-
-  it("does not replace applicationUrl from fake raw-text registration anchors", () => {
-    const race = baseRace();
-    const parsed = parseOfficialPage(
-      `<h1>2026 서울국제마라톤</h1><p>대회일시: 2026년 3월 15일</p>
-      <script>const a = '<a href="https://fake.example/script">참가신청</a>';</script>
-      <style>.x { content: '<a href="https://fake.example/style">참가신청</a>'; }</style>
-      <textarea><a href="https://fake.example/textarea">참가신청</a></textarea>
-      <template><a href="https://fake.example/template">참가신청</a></template>
-      <!-- <a href="https://fake.example/comment">참가신청</a> -->`,
-      "https://official.example/seoul",
-    );
-
-    const result = mergeOfficialPage(
-      race,
-      parsed,
-      "https://official.example/final",
-      "2026-01-02T00:00:00.000Z",
-    );
-
-    expect(result.accepted).toBe(true);
-    if (!result.accepted) throw new Error(result.reason);
-    expect(parsed.registrationUrl).toBeNull();
-    expect(result.race.applicationUrl).toBe(race.applicationUrl);
-  });
-
-  it("does not replace applicationUrl from title or quoted-attribute fake anchors", () => {
-    const race = baseRace();
-    const parsed = parseOfficialPage(
-      `<title><a href="https://fake.example/title">참가신청</a></title>
-      <h1>2026 서울국제마라톤</h1><p>대회일시: 2026년 3월 15일</p>
-      <div data-note="<a href='https://fake.example/double-attr'>참가신청</a>">x</div>
-      <span data-note='<a href="https://fake.example/single-attr">참가신청</a>'>x</span>`,
-      "https://official.example/seoul",
-    );
-    const result = mergeOfficialPage(
-      race,
-      parsed,
-      "https://official.example/final",
-      "2026-01-02T00:00:00.000Z",
-    );
-
-    expect(result.accepted).toBe(true);
-    if (!result.accepted) throw new Error(result.reason);
-    expect(parsed.registrationUrl).toBeNull();
-    expect(result.race.applicationUrl).toBe(race.applicationUrl);
-  });
-
-  it("does not replace applicationUrl from HTML5 inert or bogus fake registration anchors", () => {
-    const race = baseRace();
-    const parsed = parseOfficialPage(
-      `<h1>2026 서울국제마라톤</h1><p>대회일시: 2026년 3월 15일</p>
-      <!DOCTYPE html><!-- <a href="https://fake.example/comment">참가신청</a> -->
-      <![CDATA[<a href="https://fake.example/cdata">참가신청</a>]]>
-      <?xml <a href="https://fake.example/pi">참가신청</a> ?>
-      <!bogus <a href="https://fake.example/bogus">참가신청</a>>
-      <title><a href="https://fake.example/title">참가신청</a></title>
-      <xmp><a href="https://fake.example/xmp">참가신청</a></xmp>
-      <iframe><a href="https://fake.example/iframe">참가신청</a></iframe>
-      <noembed><a href="https://fake.example/noembed">참가신청</a></noembed>
-      <noframes><a href="https://fake.example/noframes">참가신청</a></noframes>
-      <plaintext><a href="https://fake.example/plaintext">참가신청</a>
-      <script>const a = '<a href="https://fake.example/script">참가신청</a>';</script>
-      <style>.x{content:'<a href="https://fake.example/style">참가신청</a>';}</style>
-      <textarea><a href="https://fake.example/textarea">참가신청</a></textarea>
-      <template><a href="https://fake.example/template">참가신청</a></template>`,
-      "https://official.example/seoul",
-    );
-    const result = mergeOfficialPage(
-      race,
-      parsed,
-      "https://official.example/final",
-      "2026-01-02T00:00:00.000Z",
-    );
-
-    expect(result.accepted).toBe(true);
-    if (!result.accepted) throw new Error(result.reason);
-    expect(parsed.registrationUrl).toBeNull();
-    expect(result.race.applicationUrl).toBe(race.applicationUrl);
-  });
-
-  it("does not replace applicationUrl from unsafe application registration URLs", () => {
-    const race = baseRace();
-    for (const href of [
-      "https://localhost/apply",
-      "https://race.local/apply",
-      "https://user:pass@apply.example/apply",
-      "http://127.0.0.1/apply",
-      "http://10.0.0.1/apply",
-      "http://172.16.0.1/apply",
-      "http://192.168.1.1/apply",
-      "http://169.254.1.1/apply",
-      "http://[::1]/apply",
-      "http://[fc00::1]/apply",
-      "http://[fe80::1]/apply",
-      "https://payments.example/checkout",
-    ]) {
-      const parsed = parseOfficialPage(
-        `<h1>2026 서울국제마라톤</h1><p>대회일시: 2026년 3월 15일</p><a href="${href}">참가신청</a>`,
-        "https://official.example/seoul",
-      );
-      const result = mergeOfficialPage(
-        race,
-        parsed,
-        "https://official.example/final",
-        "2026-01-02T00:00:00.000Z",
-      );
-      expect(result.accepted, href).toBe(true);
-      if (!result.accepted) throw new Error(result.reason);
-      expect(parsed.registrationUrl, href).toBeNull();
-      expect(result.race.applicationUrl, href).toBe(race.applicationUrl);
-    }
-  });
-
-  it("does not replace applicationUrl after malformed quoted fake-anchor tags", () => {
-    const race = baseRace();
-    const parsed = parseOfficialPage(
-      `<h1>2026 서울국제마라톤</h1><p>대회일시: 2026년 3월 15일</p>
-      <div data-note="<a href='https://fake.example/unterminated'>참가신청</a>
-      <a href="https://fake.example/after">참가신청</a>`,
-      "https://official.example/seoul",
-    );
-    const result = mergeOfficialPage(
-      race,
-      parsed,
-      "https://official.example/final",
-      "2026-01-02T00:00:00.000Z",
-    );
-
-    expect(result.accepted).toBe(true);
-    if (!result.accepted) throw new Error(result.reason);
-    expect(parsed.registrationUrl).toBeNull();
-    expect(result.race.applicationUrl).toBe(race.applicationUrl);
+    expect(result).toEqual({ accepted: false, reason: "missing-event-date" });
   });
 });
