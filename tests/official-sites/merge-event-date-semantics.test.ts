@@ -19,7 +19,7 @@ const race = (): Race => ({
 });
 
 describe("mergeOfficialPage final Event/body date semantics", () => {
-  it("merges selected first matching undated Event fields when no explicit body race date exists", () => {
+  it("rejects selected undated Event fields when no explicit body race date exists", () => {
     const parsed = parseOfficialPage(
       `<script type="application/ld+json">{"@type":"Event","name":"서울국제마라톤","location":"선택장소","offers":[{"name":"10K","price":"40000"}],"registrationUrl":"https://apply.example/undated"}</script><script type="application/ld+json">{"@type":"Event","name":"2026 서울국제마라톤","location":"둘째장소"}</script><h1>서울국제마라톤</h1>`,
       "https://official.example/seoul",
@@ -30,16 +30,7 @@ describe("mergeOfficialPage final Event/body date semantics", () => {
       "https://official.example/final",
       "2026-01-02T00:00:00.000Z",
     );
-    expect(result.accepted).toBe(true);
-    if (!result.accepted) throw new Error(result.reason);
-    expect(result.race.name).toBe("2026 서울국제마라톤");
-    expect(result.race.eventDate).toBe("2026-03-15");
-    expect(result.race.venue).toBe("선택장소");
-    expect(result.race.applicationUrl).toBe("https://apply.example/undated");
-    expect(result.race.courses).toEqual([
-      { name: "5K", price: 10000 },
-      { name: "10K", price: 40000, priceSource: "structured" },
-    ]);
+    expect(result).toEqual({ accepted: false, reason: "missing-event-date" });
   });
 
   it("rejects conflicting body context before merge and leaves race unchanged", () => {
@@ -58,7 +49,6 @@ describe("mergeOfficialPage final Event/body date semantics", () => {
     ).toEqual({
       accepted: false,
       reason: "date-mismatch",
-      race: original,
     });
   });
 
@@ -76,7 +66,7 @@ describe("mergeOfficialPage final Event/body date semantics", () => {
         "https://official.example/final",
         "2026-01-02T00:00:00.000Z",
       ),
-    ).toEqual({ accepted: false, reason: "date-mismatch", race: original });
+    ).toEqual({ accepted: false, reason: "date-mismatch" });
   });
 
   it("rejects exact-date Event with conflicting body race date without body names", () => {
@@ -93,6 +83,6 @@ describe("mergeOfficialPage final Event/body date semantics", () => {
         "https://official.example/final",
         "2026-01-02T00:00:00.000Z",
       ),
-    ).toEqual({ accepted: false, reason: "date-mismatch", race: original });
+    ).toEqual({ accepted: false, reason: "date-mismatch" });
   });
 });

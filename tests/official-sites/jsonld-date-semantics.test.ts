@@ -168,7 +168,6 @@ describe("JSON-LD Event date semantics", () => {
     expect(mergeOfficialPage(original, parsed, "https://official.example/final")).toEqual({
       accepted: false,
       reason: "invalid-date",
-      race: original,
     });
   });
 });
