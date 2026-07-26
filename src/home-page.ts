@@ -1,5 +1,5 @@
 import type { Race } from "./contract.js";
-import { heroArtwork, icon } from "./home-art.js";
+import { icon } from "./home-art.js";
 import "./home.css";
 import { bindHomepageMenu } from "./home-menu.js";
 import { createRaceSelectors, formatRaceMonth } from "./home-month-selector.js";
@@ -63,9 +63,19 @@ export function createHomepage(
 
   const header = element("header", "home-header");
   const headerInner = element("div", "home-header-inner");
-  const brand = element("a", "home-brand", "마라톤 캘린더");
+  const brand = element("a", "home-brand");
   brand.href = "#";
   brand.setAttribute("aria-label", "마라톤 캘린더 홈");
+  const brandImage = element("img", "home-brand-image");
+  brandImage.alt = "";
+  brandImage.setAttribute("aria-hidden", "true");
+  brandImage.width = 237;
+  brandImage.height = 256;
+  brandImage.src = new URL(
+    "logo2.png",
+    new URL(import.meta.env.BASE_URL ?? "./", window.location.href),
+  ).href;
+  brand.append(brandImage);
   const menuToggle = element("button", "home-menu-toggle", "메뉴");
   menuToggle.type = "button";
   menuToggle.setAttribute("aria-controls", "home-header-menu");
@@ -108,7 +118,18 @@ export function createHomepage(
   cta.append(icon("calendar"), document.createTextNode("캘린더로 보기"));
   copy.append(cta);
   const heroVisual = element("div", "home-hero-visual");
-  heroVisual.append(heroArtwork());
+  const heroImage = element("img", "home-hero-art");
+  heroImage.alt = "";
+  heroImage.setAttribute("aria-hidden", "true");
+  heroImage.width = 237;
+  heroImage.height = 256;
+  heroImage.decoding = "async";
+  heroImage.fetchPriority = "high";
+  heroImage.src = new URL(
+    "logo2.png",
+    new URL(import.meta.env.BASE_URL ?? "./", window.location.href),
+  ).href;
+  heroVisual.append(heroImage);
   heroInner.append(copy, heroVisual);
   hero.append(heroInner);
   main.append(hero);

@@ -1,5 +1,3 @@
-import type { Race } from "./contract.js";
-
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 
 function svgElement<K extends keyof SVGElementTagNameMap>(
@@ -61,39 +59,4 @@ export function heroArtwork(): SVGSVGElement {
   );
   svg.append(skyline, runner);
   return svg;
-}
-
-export function raceThumbnail(race: Pick<Race, "eventDate" | "name">): HTMLSpanElement {
-  const media = document.createElement("span");
-  const variant =
-    [...race.name].reduce((total, character) => total + (character.codePointAt(0) ?? 0), 0) % 3;
-  media.className = `home-race-media home-race-media-${variant + 1}`;
-  const svg = svgElement("svg", {
-    class: "home-race-thumbnail",
-    viewBox: "0 0 120 90",
-    preserveAspectRatio: "xMidYMid slice",
-    "aria-hidden": "true",
-  });
-  svg.append(
-    svgElement("rect", { class: "home-thumbnail-sky", width: "120", height: "90" }),
-    svgElement("path", {
-      class: "home-thumbnail-city",
-      d: "M0 58h15V31h14v27h13V20h18v38h12V37h14v21h16V27h18v63H0Z",
-    }),
-    svgElement("path", {
-      class: "home-thumbnail-track",
-      d: "M-8 88c34-30 70-30 136 0M7 88c30-19 58-19 106 0",
-    }),
-    svgElement("circle", { class: "home-thumbnail-runner", cx: "76", cy: "38", r: "5" }),
-    svgElement("path", {
-      class: "home-thumbnail-runner-line",
-      d: "m73 45-10 15 14 9 8-16 11 8M67 51l-14 7M77 69l-12 14M77 69l16 12",
-    }),
-  );
-  const date = document.createElement("time");
-  date.className = "home-race-date";
-  date.dateTime = race.eventDate;
-  date.textContent = `${race.eventDate.slice(5, 7)}.${race.eventDate.slice(8, 10)}`;
-  media.append(svg, date);
-  return media;
 }
