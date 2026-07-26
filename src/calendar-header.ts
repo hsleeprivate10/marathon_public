@@ -17,9 +17,19 @@ function element<K extends keyof HTMLElementTagNameMap>(
 export function createCalendarBranding(): CalendarBranding {
   const header = element("header", "calendar-header");
   const headerInner = element("div", "calendar-header-inner");
-  const brand = element("a", "calendar-brand", "마라톤 캘린더");
+  const brand = element("a", "calendar-brand");
   brand.href = "#";
   brand.setAttribute("aria-label", "마라톤 캘린더 홈");
+  const brandImage = element("img", "calendar-brand-image");
+  brandImage.alt = "";
+  brandImage.setAttribute("aria-hidden", "true");
+  brandImage.width = 237;
+  brandImage.height = 256;
+  brandImage.src = new URL(
+    "logo2.png",
+    new URL(import.meta.env.BASE_URL ?? "./", window.location.href),
+  ).href;
+  brand.append(brandImage);
   const home = element("a", "calendar-home-link", "메인으로 돌아가기");
   home.href = "#";
   headerInner.append(brand, home);

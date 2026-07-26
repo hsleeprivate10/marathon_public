@@ -29,10 +29,6 @@
   --row-border: #e3e8ec;
   --row-shadow: 0 8px 22px rgba(17, 43, 67, 0.08);
   --thumbnail-sky: #dceaf3;
-  --thumbnail-sky-alt: #e7e1f2;
-  --thumbnail-sky-warm: #f2e2d5;
-  --thumbnail-city: #0b3a67;
-  --thumbnail-track: #c2410c;
   --thumbnail-date-surface: rgba(7, 43, 80, 0.9);
   --homepage-content-max: 1200px;
   --homepage-gutter: clamp(16px, 5vw, 56px);
@@ -42,6 +38,8 @@
   --radius-pill: 999px;
   --radius-card: 12px;
   --radius-media: 9px;
+  --brand-image-max-block: 32px;
+  --logo-surface: #ffffff;
   --race-row-gap: 16px;
   --race-row-padding: 14px;
   --race-thumbnail-ratio: 4 / 3;
@@ -60,10 +58,6 @@
     --row-border: #38506a;
     --row-shadow: 0 12px 28px rgba(0, 0, 0, 0.32);
     --thumbnail-sky: #29485f;
-    --thumbnail-sky-alt: #433b59;
-    --thumbnail-sky-warm: #574133;
-    --thumbnail-city: #8bb3d1;
-    --thumbnail-track: #f08a55;
     --thumbnail-date-surface: rgba(6, 29, 51, 0.94);
   }
 }

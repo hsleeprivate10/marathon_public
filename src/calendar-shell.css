@@ -39,22 +39,21 @@
 }
 
 .calendar-brand {
-  color: var(--hero-text);
-  font-size: 20px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
+  display: inline-flex;
+  min-width: var(--control-height);
+  min-height: var(--control-height);
+  align-items: center;
+  justify-content: center;
   text-decoration: none;
-  white-space: nowrap;
 }
 
-.calendar-brand::before {
-  display: inline-block;
-  width: var(--space-3);
-  height: var(--space-3);
-  margin-right: var(--space-2);
-  border: 3px solid var(--cta-orange);
-  border-radius: var(--radius-pill);
-  content: "";
+.calendar-brand-image {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  max-height: var(--brand-image-max-block);
+  object-fit: contain;
 }
 
 .calendar-home-link {
