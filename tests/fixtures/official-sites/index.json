@@ -1,4 +1,13 @@
 {
   "https://official.example/seoul-2026": "matching-event.html",
-  "https://stale.example/race": "removed-event.html"
+  "https://official.example/seoul-2026-logo": "matching-event-logo.html",
+  "https://stale.example/race": "removed-event.html",
+  "https://official-gorun.example/race?id=9101": "gorunning-official-event.html",
+  "https://official-kor.example/home?eventId=9101": "kormarathon-official-event.html",
+  "https://official-emarathon.example/main?race=9101": "emarathon-official-event.html",
+  "https://seoul-spring.example.com/event": "seoul-spring-event.html",
+  "https://hangang-night.example.net/event/501": "hangang-night-event.html",
+  "https://seoul-citizen.example.org/race": "seoul-citizen-event.html",
+  "https://official-runningmap.example/event?id=9101": "runningmap-official-event.html",
+  "https://daegu-moonlight.example.com/official": "marathonmate-daegu-event.html"
 }
