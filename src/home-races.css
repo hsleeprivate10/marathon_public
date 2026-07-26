@@ -84,56 +84,24 @@
 
 .home-race-media {
   position: relative;
-  display: block;
+  display: grid;
+  width: 100%;
+  grid-template: "media" minmax(0, 1fr) / minmax(0, 1fr);
   overflow: hidden;
+  place-items: center;
   aspect-ratio: var(--race-thumbnail-ratio);
   border-radius: var(--radius-media);
-  background: var(--thumbnail-sky);
-  color: var(--thumbnail-sky);
 }
 
-.home-race-media-2 {
-  background: var(--thumbnail-sky-alt);
-  color: var(--thumbnail-sky-alt);
-}
-
-.home-race-media-3 {
-  background: var(--thumbnail-sky-warm);
-  color: var(--thumbnail-sky-warm);
-}
-
-.home-race-thumbnail {
+.home-race-logo {
+  grid-area: media;
   display: block;
-  width: 100%;
-  height: 100%;
-}
-
-.home-thumbnail-sky {
-  fill: currentColor;
-  opacity: 0.28;
-}
-
-.home-thumbnail-city {
-  fill: var(--thumbnail-city);
-  opacity: 0.82;
-}
-
-.home-thumbnail-track {
-  fill: none;
-  stroke: var(--thumbnail-track);
-  stroke-width: 5;
-}
-
-.home-thumbnail-runner {
-  fill: var(--thumbnail-track);
-}
-
-.home-thumbnail-runner-line {
-  fill: none;
-  stroke: var(--hero-text);
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 5;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  max-height: 100%;
+  background: var(--logo-surface);
+  object-fit: contain;
 }
 
 .home-race-date {

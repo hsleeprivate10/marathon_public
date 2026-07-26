@@ -1,5 +1,6 @@
 import type { Race, RegistrationStatus } from "./contract.js";
-import { icon, raceThumbnail } from "./home-art.js";
+import { icon } from "./home-art.js";
+import { createRaceMedia } from "./home-race-media.js";
 import { raceHref } from "./race-link.js";
 
 const statusLabels: Readonly<Record<RegistrationStatus, string>> = {
@@ -47,7 +48,7 @@ export function createRaceRow(race: Race): HTMLLIElement {
   details.append(metadata);
   const action = element("span", "home-race-action", "신청 안내");
   action.setAttribute("aria-hidden", "true");
-  link.append(raceThumbnail(race), details, action);
+  link.append(createRaceMedia(race), details, action);
 
   const favorite = element("button", "home-favorite");
   favorite.type = "button";
