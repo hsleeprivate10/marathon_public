@@ -25,7 +25,7 @@ function urls(html: string): readonly string[] {
     sourceHosts: ["source.example"],
     aggregatorHosts: ["source.example"],
     html,
-    raceDetailContext: { present: true },
+    raceDetailContext: { present: true, sourceDetailUrl: "https://source.example/detail" },
   }).map((link) => link.url);
 }
 

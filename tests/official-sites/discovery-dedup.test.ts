@@ -21,14 +21,15 @@ function makeRace(): Race {
 }
 
 function discover(html: string) {
+  const sourceDetailUrl = "https://www.gorunning.co.kr/race/view.php?idx=1001";
   return discoverRaceLinks({
     race: makeRace(),
     sourceId: "gorunning",
-    sourcePageUrl: "https://www.gorunning.co.kr/race/view.php?idx=1001",
+    sourcePageUrl: sourceDetailUrl,
     sourceHosts: ["www.gorunning.co.kr"],
     aggregatorHosts: ["gorunning.co.kr", "www.gorunning.co.kr"],
     html,
-    raceDetailContext: { present: true },
+    raceDetailContext: { present: true, sourceDetailUrl },
   });
 }
 
@@ -89,8 +90,6 @@ describe("cross-evidence canonical deduplication", () => {
         "url":"https://same.example/register?idx=1001#official"
       }</script>`;
 
-    expect(rows(html)).toEqual([
-      ["application", "explicit-label", "https://same.example/register?idx=1001"],
-    ]);
+    expect(rows(html)).toEqual([]);
   });
 });
