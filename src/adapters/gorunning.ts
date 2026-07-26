@@ -1,21 +1,30 @@
-import type { Course, Race } from "../contract.js";
+import type { Race } from "../contract.js";
 import { computeRegistrationStatus } from "../contract.js";
-import { canonicalCourses } from "../courses.js";
-import { safeApplicationUrl } from "../official-sites/application-url-policy.js";
+import {
+  KNOWN_AGGREGATOR_HOSTS,
+  isGenericHomepageUrl,
+} from "../official-sites/application-url-policy.js";
 import { discoverRaceLinks } from "../official-sites/discovery.js";
 import { detailFixtureName, safeGoRunningDetailUrl } from "./detail-source-url.js";
+import type { GoRunningListItem } from "./gorunning-list.js";
 import { parseGoRunningList } from "./gorunning-list.js";
 import {
   type AdapterResult,
+  type AdapterStageCounters,
   type CollectConfig,
   type DiscoveredRaceLink,
   INTER_FETCH_DELAY_MS,
   type SourceAdapter,
+  type SourceDiscoveryCandidate,
   failedMetadata,
   fetchWithTimeout,
   readFixture,
   sleep,
+  sourceDetailUrl,
+  sourceId,
+  sourceResultUrl,
   successMetadata,
+  transientIdentityHint,
 } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -23,121 +32,28 @@ import {
 // ---------------------------------------------------------------------------
 
 const DETAIL_BUDGET = 200;
-
-interface DetailData {
-  readonly name: string;
-  readonly eventDate: string | null;
-  readonly venue: string;
-  readonly courses: ReadonlyArray<Course>;
-  readonly applicationUrl: string | null;
-  readonly registrationDeadline: string | null;
-}
-
-/** Extract structured data from a GoRunning detail page. */
-function parseDetailPage(html: string): DetailData | null {
-  const visibleHtml = html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ");
-  // Title / race name
-  const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-  const name = titleMatch?.[1]?.trim().replace(/\s*\|\s*고러닝.*$/i, "") ?? null;
-  if (!name || name.length < 3) return null;
-
-  // Date extraction: look for YYYY.MM.DD or YYYY-MM-DD patterns near "일" or "날짜"
-  const datePatterns = [
-    /(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})/,
-    /(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일/,
-  ];
-  let eventDate = "";
-  for (const pat of datePatterns) {
-    const m = visibleHtml.match(pat);
-    if (m) {
-      eventDate = `${m[1]}-${m[2]?.padStart(2, "0")}-${m[3]?.padStart(2, "0")}`;
-      break;
-    }
-  }
-
-  // Venue
-  const venueMatch = visibleHtml.match(/(?:장소|출발지|코스)[^<]*?:?\s*([^<\n]{3,50})/i);
-  const venue = venueMatch?.[1]?.trim() ?? "미상";
-
-  const rawCourses = [...visibleHtml.matchAll(/<p[^>]*>([^<]+)<\/p>/gi)].flatMap((match) => {
-    const course = (match[1] ?? "").match(
-      /^\s*(풀코스|하프코스|하프|10K|10km|5K|5km)\s*:?[\s]*(?:(\d{1,3}(?:,\d{3})+))?\s*원?/i,
-    );
-    if (!course?.[1]) return [];
-    return [
-      {
-        name: course[1],
-        price: course[2] ? Number.parseInt(course[2].replaceAll(",", ""), 10) : null,
-      },
-    ];
-  });
-  const courses = canonicalCourses(rawCourses);
-
-  // Registration deadline
-  const deadlineMatch = visibleHtml.match(
-    /(?:접수마감|마감|등록마감)[^<]*?(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})/,
-  );
-  const registrationDeadline = deadlineMatch
-    ? `${deadlineMatch[1]}-${deadlineMatch[2]?.padStart(2, "0")}-${deadlineMatch[3]?.padStart(2, "0")}`
-    : null;
-
-  // Application URL — link to registration
-  const appLinkMatch = html.match(/href="(https?:\/\/[^"]*(?:apply|entry|register|접수)[^"]*)"/i);
-  const websiteLinkMatch = html.match(
-    /(?:Website|웹사이트)<\/p>[\s\S]{0,500}?href="(https?:\/\/[^"]+)"/i,
-  );
-  const applicationUrl = appLinkMatch?.[1] ?? websiteLinkMatch?.[1] ?? null;
-
-  return {
-    name,
-    eventDate: eventDate || null,
-    venue,
-    courses,
-    applicationUrl,
-    registrationDeadline,
-  };
-}
+const EMPTY_COUNTERS: AdapterStageCounters = {
+  discoveryCandidates: 0,
+  sourceDetailsFetched: 0,
+  discoveredOfficialCandidates: 0,
+  rejectedCandidates: 0,
+  budgetSkipped: 0,
+};
 
 // ---------------------------------------------------------------------------
 // Adapter
 // ---------------------------------------------------------------------------
 
 const BASE_URL = "https://gorunning.kr";
-const KNOWN_SOURCE_HOSTS = [
-  "gorunning.kr",
-  "www.gorunning.kr",
-  "gorunning.co.kr",
-  "www.gorunning.co.kr",
-  "kormarathon.com",
-  "www.kormarathon.com",
-  "emarathon.or.kr",
-  "www.emarathon.or.kr",
-  "e-marathon.co.kr",
-  "www.e-marathon.co.kr",
-  "runningmap.kr",
-  "www.runningmap.kr",
-  "runningmap.com",
-  "www.runningmap.com",
-  "maedal.com",
-  "www.maedal.com",
-  "m.kaaf.or.kr",
-  "kaaf.or.kr",
-  "www.kaaf.or.kr",
-  "marathon.me.kr",
-  "www.marathon.me.kr",
-  "marathonmoa.com",
-  "www.marathonmoa.com",
-  "marathonmate.store",
-  "www.marathonmate.store",
-] as const;
-const SOURCE_HOSTS = KNOWN_SOURCE_HOSTS;
-const AGGREGATOR_HOSTS = KNOWN_SOURCE_HOSTS;
+const SOURCE_HOSTS = ["gorunning.kr", "gorunning.co.kr"] as const;
+const AGGREGATOR_HOSTS = KNOWN_AGGREGATOR_HOSTS;
 
 function withoutSelfSourceApplications(
   links: readonly DiscoveredRaceLink[],
 ): readonly DiscoveredRaceLink[] {
   return links.filter((link) => {
     if (link.kind !== "application") return true;
+    if (isGenericHomepageUrl(link.url)) return false;
     const url = new URL(link.url);
     return !SOURCE_HOSTS.some((host) => url.hostname === host || url.hostname.endsWith(`.${host}`));
   });
@@ -156,9 +72,46 @@ function discoverDetailLinks(
       sourceHosts: SOURCE_HOSTS,
       aggregatorHosts: AGGREGATOR_HOSTS,
       html: detailHtml,
-      raceDetailContext: { present: true },
+      raceDetailContext: { present: true, sourceDetailUrl: sourcePageUrl },
     }),
   );
+}
+
+function candidateFromListItem(
+  item: GoRunningListItem,
+  detailUrl: string,
+  listUrl: string,
+): SourceDiscoveryCandidate {
+  return {
+    sourceId: sourceId("gorunning"),
+    sourceResultUrl: sourceResultUrl(listUrl),
+    sourceDetailUrl: sourceDetailUrl(detailUrl),
+    identityEvidence: {
+      titleHints: [transientIdentityHint(item.name)],
+      dateHints: item.eventDate === "" ? [] : [transientIdentityHint(item.eventDate)],
+      organizerHints: [],
+    },
+  };
+}
+
+function raceForDiscovery(candidate: SourceDiscoveryCandidate, now: string): Race {
+  const name =
+    candidate.identityEvidence.titleHints[0] ?? transientIdentityHint("source detail race");
+  const eventDate = candidate.identityEvidence.dateHints[0] ?? transientIdentityHint("1900-01-01");
+  return {
+    name,
+    eventDate,
+    registrationDeadline: null,
+    venue: "미상",
+    courses: [],
+    applicationUrl: candidate.sourceDetailUrl,
+    sources: ["gorunning"],
+    verified: false,
+    lastVerified: null,
+    updatedAt: now,
+    generatedAt: now,
+    registrationStatus: computeRegistrationStatus(null, eventDate),
+  };
 }
 
 export const GoRunningAdapter: SourceAdapter = {
@@ -177,92 +130,73 @@ export const GoRunningAdapter: SourceAdapter = {
         listHtml = await fetchWithTimeout(`${BASE_URL}/races/`);
       }
 
+      const listUrl = `${BASE_URL}/races/`;
       const items = parseGoRunningList(listHtml);
       const budget = config.detailBudget ?? DETAIL_BUDGET;
-      const races: Race[] = [];
-      const discoveredLinks: DiscoveredRaceLink[] = [];
+      const discoveryCandidates: SourceDiscoveryCandidate[] = [];
+      const discoveredOfficialCandidates: DiscoveredRaceLink[] = [];
+      let sourceDetailsFetched = 0;
+      let rejectedCandidates = 0;
+      let budgetSkipped = 0;
       const now = new Date().toISOString();
 
       for (const [index, item] of items.entries()) {
         const detailUrl = safeGoRunningDetailUrl(item.detailPath);
-        if (detailUrl === null) continue;
-        let detailHtml: string | undefined;
-        if (index < budget) {
-          if (config.fixtureDir) {
-            const filename = detailFixtureName(detailUrl, BASE_URL);
-            try {
-              detailHtml = await readFixture(config.fixtureDir, filename);
-            } catch {
-              detailHtml = undefined;
-            }
-          } else {
-            try {
-              detailHtml = await fetchWithTimeout(detailUrl);
-            } catch {
-              detailHtml = undefined;
-            }
-          }
+        if (detailUrl === null) {
+          rejectedCandidates += 1;
+          continue;
         }
+        const candidate = candidateFromListItem(item, detailUrl, listUrl);
+        discoveryCandidates.push(candidate);
+        if (index >= budget) {
+          budgetSkipped += 1;
+          continue;
+        }
+        let detailHtml: string;
+        try {
+          detailHtml = config.fixtureDir
+            ? await readFixture(config.fixtureDir, detailFixtureName(detailUrl, BASE_URL))
+            : await fetchWithTimeout(detailUrl);
+        } catch (error) {
+          if (!(error instanceof Error)) throw error;
+          rejectedCandidates += 1;
+          continue;
+        }
+        sourceDetailsFetched += 1;
+        const links = discoverDetailLinks(raceForDiscovery(candidate, now), detailHtml, detailUrl);
+        if (links.length === 0) rejectedCandidates += 1;
+        discoveredOfficialCandidates.push(...links);
 
-        const detail = detailHtml === undefined ? null : parseDetailPage(detailHtml);
-        if (detail === null && item.eventDate === "") continue;
-
-        const rawCourses = detail?.courses.length ? detail.courses : item.courses;
-        const courses = rawCourses.map((course) => ({
-          name: course.name,
-          price: course.price,
-          ...(detail === null ? {} : { priceSource: "structured" as const }),
-        }));
-
-        const sourcePageUrl = detailUrl;
-        const eventDate = item.eventDate || detail?.eventDate;
-        if (eventDate === null || eventDate === undefined || eventDate === "") continue;
-        const registrationDeadline = detail?.registrationDeadline ?? null;
-        const detailApplicationUrl = safeApplicationUrl(detail?.applicationUrl ?? null);
-        const race: Race = {
-          name: item.name,
-          eventDate,
-          registrationDeadline,
-          venue: item.venue === "미상" ? (detail?.venue ?? "미상") : item.venue,
-          courses,
-          applicationUrl: detailApplicationUrl ?? sourcePageUrl,
-          sources: [id],
-          verified: detail !== null,
-          lastVerified: detail === null ? null : now,
-          updatedAt: now,
-          generatedAt: now,
-          registrationStatus: computeRegistrationStatus(registrationDeadline, eventDate),
-        };
-        const links =
-          detailHtml === undefined ? [] : discoverDetailLinks(race, detailHtml, sourcePageUrl);
-        const registrationLink =
-          links.find((link) => link.kind === "application") ??
-          links.find((link) => link.kind === "official-site");
-        races.push(
-          registrationLink === undefined ? race : { ...race, applicationUrl: registrationLink.url },
-        );
-        discoveredLinks.push(...links);
-
-        if (!config.fixtureDir && detailHtml !== undefined) {
+        if (!config.fixtureDir) {
           await sleep(INTER_FETCH_DELAY_MS);
         }
       }
 
+      const counters: AdapterStageCounters = {
+        discoveryCandidates: discoveryCandidates.length,
+        sourceDetailsFetched,
+        discoveredOfficialCandidates: discoveredOfficialCandidates.length,
+        rejectedCandidates,
+        budgetSkipped,
+      };
+
       return {
-        races,
-        discoveredLinks,
+        discoveryCandidates,
+        discoveredOfficialCandidates,
         metadata: successMetadata(
           id,
-          races.length,
-          `Collected ${races.length} races from GoRunning`,
+          discoveredOfficialCandidates.length,
+          `Discovered ${discoveryCandidates.length} GoRunning source-detail candidates; fetched ${sourceDetailsFetched}; official candidates ${discoveredOfficialCandidates.length}; rejected ${rejectedCandidates}; budget skipped ${budgetSkipped}`,
         ),
+        stageCounters: counters,
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return {
-        races: [],
-        discoveredLinks: [],
+        discoveryCandidates: [],
+        discoveredOfficialCandidates: [],
         metadata: failedMetadata(id, true, `GoRunning failed: ${message}`),
+        stageCounters: EMPTY_COUNTERS,
       };
     }
   },

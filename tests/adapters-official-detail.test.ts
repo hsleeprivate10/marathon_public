@@ -4,10 +4,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { EMarathonAdapter } from "../src/adapters/emarathon.js";
 import { GoRunningAdapter } from "../src/adapters/gorunning.js";
 import { KorMarathonAdapter } from "../src/adapters/kormarathon.js";
+import { MarathonMoaAdapter } from "../src/adapters/marathonmoa.js";
 import { RunningMapAdapter } from "../src/adapters/runningmap.js";
 import type { AdapterResult } from "../src/adapters/types.js";
-import { RaceSchema } from "../src/contract.js";
-import { dedupKey } from "../src/normalize.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FIXTURES_DIR = resolve(__dirname, "fixtures");
@@ -53,12 +52,6 @@ const cases = [
     officialUrl: "https://official-emarathon.example/main?race=9101",
     applicationUrl: "https://apply-emarathon.example/register?race=9101",
   },
-  {
-    adapter: RunningMapAdapter,
-    fixtureName: "runningmap",
-    officialUrl: "https://official-runningmap.example/event?id=9101",
-    applicationUrl: "https://apply-runningmap.example/start?id=9101",
-  },
 ];
 
 afterEach(() => {
@@ -97,8 +90,9 @@ function fetchedUrls(): readonly string[] {
 function fixtureDir(item: { readonly fixtureName: string }, variant: string): string {
   return `${FIXTURES_DIR}/${item.fixtureName}/${variant}`;
 }
-function expectSchemaOk(result: AdapterResult): void {
-  for (const race of result.races) expect(RaceSchema.safeParse(race).success).toBe(true);
+function expectNoLegacyPublicFields(result: AdapterResult): void {
+  expect(result).not.toHaveProperty("races");
+  expect(result).not.toHaveProperty("discoveredLinks");
 }
 function expectNoForbiddenFetches(): void {
   expect(fetchedUrls().filter((url) => forbiddenDetailPath.test(new URL(url).pathname))).toEqual(
@@ -106,12 +100,8 @@ function expectNoForbiddenFetches(): void {
   );
 }
 function expectNoOutputUrl(result: AdapterResult, url: string): void {
-  expect([
-    ...result.races.map((race) => race.applicationUrl),
-    ...result.discoveredLinks.map((link) => link.url),
-  ]).not.toContain(url);
+  expect(result.discoveredOfficialCandidates.map((link) => link.url)).not.toContain(url);
 }
-
 describe("detail-rich adapter official link discovery", () => {
   it("does not replace current GoRunning list identity with noisy detail values", async () => {
     const listUrl = "https://gorunning.kr/races/";
@@ -124,13 +114,80 @@ describe("detail-rich adapter official link discovery", () => {
     const result = await GoRunningAdapter.collect({ fixtureDir: undefined, detailBudget: 1 });
 
     expect(fetchedUrls()).toEqual([listUrl, detailUrl]);
-    expect(result.races[0]).toMatchObject({
-      name: "2026 양산 어필(up-hill) 레이스",
-      eventDate: "2026-09-20",
-      venue: "양산 정확한 장소",
-      registrationDeadline: null,
-      applicationUrl: "https://apply.example.com/race",
+    expectNoLegacyPublicFields(result);
+    expect(result.discoveryCandidates[0]).toMatchObject({
+      sourceId: "gorunning",
+      sourceResultUrl: listUrl,
+      sourceDetailUrl: detailUrl,
+      identityEvidence: {
+        titleHints: ["2026 양산 어필(up-hill) 레이스"],
+        dateHints: ["2026-09-20"],
+        organizerHints: [],
+      },
     });
+    expect(result.discoveredOfficialCandidates).toEqual([]);
+  });
+
+  it("keeps the GoRunning race detail instead of a generic organizer homepage", async () => {
+    const listUrl = "https://gorunning.kr/races/";
+    const detailUrl = "https://gorunning.kr/races/1200/generic-organizer-race/";
+    installFetchRoutes({
+      [listUrl]: `<div id="race-2026-09-20"><table><tr><td>1</td><td><a href="/races/1200/generic-organizer-race/">운영사 홈 연결 마라톤</a></td><td><span>10km</span></td><td>서울</td><td>한강공원</td><td>주최자</td></tr></table></div>`,
+      [detailUrl]:
+        '<title>운영사 홈 연결 마라톤 - 고러닝</title><p>Website</p><p><a href="https://generic-organizer.example/">https://generic-organizer.example/</a></p>',
+    });
+
+    const result = await GoRunningAdapter.collect({ fixtureDir: undefined, detailBudget: 1 });
+
+    expectNoLegacyPublicFields(result);
+    expect(result.discoveryCandidates[0]?.sourceDetailUrl).toBe(detailUrl);
+    expect(result.discoveredOfficialCandidates).toEqual([]);
+  });
+
+  it("keeps RunningMap list links as detail candidates without publishing source fields", async () => {
+    const listUrl = "https://runningmap.kr/list";
+    const detailUrl = "https://runningmap.kr/race/target-race-2026-05-16";
+    installFetchRoutes({
+      [listUrl]: `<script type="application/ld+json">{"@type":"ItemList","itemListElement":[{"url":"${detailUrl}","item":{"name":"대상 마라톤","startDate":"2026-05-16","location":{"name":"서울"}}}]}</script>`,
+      [detailUrl]: '<a href="/race/unrelated-race-2026-07-18">신청하기</a>',
+    });
+
+    const result = await RunningMapAdapter.collect({ fixtureDir: undefined, detailBudget: 1 });
+
+    expect(fetchedUrls()).toEqual([listUrl, detailUrl]);
+    expect(result).not.toHaveProperty("races");
+    expect(result).not.toHaveProperty("discoveredLinks");
+    expect(result.discoveryCandidates[0]).toMatchObject({
+      sourceId: "runningmap",
+      sourceResultUrl: listUrl,
+      sourceDetailUrl: detailUrl,
+      identityEvidence: {
+        titleHints: ["대상 마라톤"],
+        dateHints: ["2026-05-16"],
+        organizerHints: [],
+      },
+    });
+    expect(result.discoveredOfficialCandidates).toEqual([]);
+    expect(result.stageCounters).toEqual({
+      discoveryCandidates: 1,
+      sourceDetailsFetched: 1,
+      discoveredOfficialCandidates: 0,
+      rejectedCandidates: 1,
+      budgetSkipped: 0,
+    });
+  });
+
+  it("does not fetch an external Marathon Moa fallback detail URL", async () => {
+    const listUrl = "https://marathon.me.kr/events";
+    installFetchRoutes({
+      [listUrl]:
+        '<article class="race-card"><a href="https://attacker.example/race/501">외부 상세 마라톤</a><span>2026-08-01</span></article>',
+      "https://attacker.example/race/501": "<p>internal target</p>",
+    });
+
+    await MarathonMoaAdapter.collect({ fixtureDir: undefined, detailBudget: 1 });
+
+    expect(fetchedUrls()).toEqual([listUrl]);
   });
 
   it("emits explicit official/application links from detail fixtures without network", async () => {
@@ -141,27 +198,22 @@ describe("detail-rich adapter official link discovery", () => {
         detailBudget: 5,
       });
       expect(globalThis.fetch).not.toHaveBeenCalled();
-      const race = result.races[0];
-      expect(race).toBeDefined();
-      if (race === undefined) continue;
-      expectSchemaOk(result);
-      expect(result.discoveredLinks).toEqual(
+      expectNoLegacyPublicFields(result);
+      const candidate = result.discoveryCandidates[0];
+      expect(candidate).toBeDefined();
+      if (candidate === undefined) continue;
+      expect(result.discoveredOfficialCandidates).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
-            dedupKey: dedupKey(race),
             kind: "official-site",
             sourceId: item.adapter.id,
             url: item.officialUrl,
             evidence: "explicit-label",
           }),
-          expect.objectContaining({
-            dedupKey: dedupKey(race),
-            kind: "application",
-            sourceId: item.adapter.id,
-            url: item.applicationUrl,
-            evidence: "explicit-label",
-          }),
         ]),
+      );
+      expect(result.discoveredOfficialCandidates.map((link) => link.url)).not.toContain(
+        item.applicationUrl,
       );
     }
   });
@@ -176,9 +228,9 @@ describe("detail-rich adapter official link discovery", () => {
         });
         expect(globalThis.fetch).not.toHaveBeenCalled();
         expect(result.metadata.succeeded).toBe(true);
-        expect(result.discoveredLinks).toEqual([]);
+        expect(result.discoveredOfficialCandidates).toEqual([]);
         expect(result.metadata.message).not.toContain("official-site accepted");
-        expectSchemaOk(result);
+        expectNoLegacyPublicFields(result);
       }
       trapNetwork();
       const zero = await item.adapter.collect({
@@ -186,8 +238,8 @@ describe("detail-rich adapter official link discovery", () => {
         detailBudget: 0,
       });
       expect(globalThis.fetch).not.toHaveBeenCalled();
-      expect(zero.discoveredLinks).toEqual([]);
-      expectSchemaOk(zero);
+      expect(zero.discoveredOfficialCandidates).toEqual([]);
+      expectNoLegacyPublicFields(zero);
     }
   });
 });
@@ -202,8 +254,9 @@ describe("Todo 6 verifier regressions", () => {
       const result = await GoRunningAdapter.collect({ fixtureDir: undefined, detailBudget: 5 });
       expect(fetchedUrls()).toEqual(["https://gorunning.kr/races/"]);
       expectNoForbiddenFetches();
-      expect(result.races).toEqual([]);
-      expect(result.discoveredLinks).toEqual([]);
+      expectNoLegacyPublicFields(result);
+      expect(result.discoveryCandidates).toEqual([]);
+      expect(result.discoveredOfficialCandidates).toEqual([]);
     }
     for (const identifier of KR_IDS) {
       installFetchRoutes({
@@ -214,8 +267,8 @@ describe("Todo 6 verifier regressions", () => {
       expect(fetchedUrls()).toEqual(["https://www.kormarathon.com/ko/marathon-calendar"]);
       expectNoForbiddenFetches();
       expectNoOutputUrl(result, "https://www.kormarathon.com/admin");
-      expect(result.discoveredLinks).toEqual([]);
-      expectSchemaOk(result);
+      expect(result.discoveredOfficialCandidates).toEqual([]);
+      expectNoLegacyPublicFields(result);
     }
     for (const ref of EM_REFS) {
       const listUrl = `https://emarathon.or.kr/bbs/board.php?bo_table=emara04_01&add=${year}`;
@@ -228,8 +281,8 @@ describe("Todo 6 verifier regressions", () => {
       expect(fetchedUrls()).toEqual([listUrl]);
       expectNoForbiddenFetches();
       expectNoOutputUrl(result, fetchUrl);
-      expect(result.discoveredLinks).toEqual([]);
-      expectSchemaOk(result);
+      expect(result.discoveredOfficialCandidates).toEqual([]);
+      expectNoLegacyPublicFields(result);
     }
     for (const ref of RM_REFS) {
       const fetchUrl = ref.startsWith("/") ? `https://runningmap.kr${ref}` : ref;
@@ -240,9 +293,8 @@ describe("Todo 6 verifier regressions", () => {
       const result = await RunningMapAdapter.collect({ fixtureDir: undefined, detailBudget: 5 });
       expect(fetchedUrls()).toEqual(["https://runningmap.kr/list"]);
       expectNoForbiddenFetches();
-      expectNoOutputUrl(result, fetchUrl);
-      expect(result.discoveredLinks).toEqual([]);
-      expectSchemaOk(result);
+      expect(result.discoveryCandidates).toEqual([]);
+      expect(result.discoveredOfficialCandidates).toEqual([]);
     }
   });
 
@@ -257,19 +309,76 @@ describe("Todo 6 verifier regressions", () => {
       detailBudget: 5,
     });
     expect(globalThis.fetch).not.toHaveBeenCalled();
-    const emKeys = em.races.map((race) => dedupKey(race));
+    const emKeys = em.discoveryCandidates.map(
+      (candidate) =>
+        `${candidate.identityEvidence.titleHints[0]}|${candidate.identityEvidence.dateHints[0]}`,
+    );
     expect(new Set(emKeys).size).toBe(2);
-    expect(em.discoveredLinks.map((link) => [link.dedupKey, link.url])).toEqual([
-      [emKeys[0], "https://official-collision.example/a-b"],
-      [emKeys[1], "https://official-collision.example/a_b"],
+    expect(em.discoveredOfficialCandidates.map((link) => link.url)).toEqual([
+      "https://official-collision.example/a-b",
+      "https://official-collision.example/a_b",
     ]);
-    const rmKeys = rm.races.map((race) => dedupKey(race));
+    const rmKeys = rm.discoveryCandidates.map(
+      (candidate) =>
+        `${candidate.identityEvidence.titleHints[0]}|${candidate.identityEvidence.dateHints[0]}`,
+    );
     expect(new Set(rmKeys).size).toBe(2);
-    expect(rm.discoveredLinks.map((link) => [link.dedupKey, link.url])).toEqual([
-      [rmKeys[0], "https://official-collision.example/map-a-b"],
-      [rmKeys[1], "https://official-collision.example/map-a_b"],
+    expect(rm.discoveredOfficialCandidates.map((link) => [link.dedupKey, link.url])).toEqual([
+      [rm.discoveredOfficialCandidates[0]?.dedupKey, "https://official-collision.example/map-a-b"],
+      [rm.discoveredOfficialCandidates[1]?.dedupKey, "https://official-collision.example/map-a_b"],
     ]);
-    expectSchemaOk(em);
-    expectSchemaOk(rm);
+    expectNoLegacyPublicFields(em);
+  });
+});
+
+describe("detail-rich adapter event logo extraction", () => {
+  const logoCases = [
+    {
+      adapter: GoRunningAdapter,
+      fixtureName: "gorunning",
+    },
+    {
+      adapter: KorMarathonAdapter,
+      fixtureName: "kormarathon",
+    },
+    {
+      adapter: EMarathonAdapter,
+      fixtureName: "emarathon",
+    },
+  ] as const;
+
+  it("attaches event-specific logos from already fetched detail fixtures without network", async () => {
+    for (const item of logoCases) {
+      trapNetwork();
+      const result = await item.adapter.collect({
+        fixtureDir: fixtureDir(item, "logo-positive"),
+        detailBudget: 1,
+      });
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+      expectNoLegacyPublicFields(result);
+      expect(result.discoveryCandidates).toHaveLength(1);
+    }
+  });
+
+  it("omits generic, cross-event, missing-detail, and zero-budget logos", async () => {
+    for (const item of logoCases) {
+      trapNetwork();
+      const negative = await item.adapter.collect({
+        fixtureDir: fixtureDir(item, "logo-negative"),
+        detailBudget: 1,
+      });
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+      expectNoLegacyPublicFields(negative);
+      expect(negative.discoveredOfficialCandidates).toEqual([]);
+
+      trapNetwork();
+      const zero = await item.adapter.collect({
+        fixtureDir: fixtureDir(item, "logo-positive"),
+        detailBudget: 0,
+      });
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+      expectNoLegacyPublicFields(zero);
+      expect(zero.discoveredOfficialCandidates).toEqual([]);
+    }
   });
 });
