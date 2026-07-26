@@ -76,19 +76,19 @@ Content is constrained to 1200px. At 375px the calendar becomes an event-only li
 - Accessibility: include a first-focus skip link to main content, a labelled primary `nav`, a labelled search field, logical DOM/tab order, Escape-to-close for an open menu, focus return to its trigger, and WCAG AA contrast for every header state.
 
 ### Homepage Navy Hero
-- Structure: full-width navy field with a left-aligned eyebrow, the Homepage Current Weather panel as the primary information and page heading, a primary orange CTA, and right-weighted runner artwork. The former `달릴 날을 정하는 선명한 방법` headline and supporting race-guide sentence are not rendered.
-- Layout: use `--homepage-content-max` and `--homepage-gutter`; desktop weather/CTA content occupies no more than 52% of the hero and the focal runner remains fully visible on the right. The weather panel stays in the left copy column at every width and never overlays the header logo or runner. At narrow widths, weather and actions precede the fixed-aspect artwork without horizontal overflow.
-- Surface: combine `--hero-navy`, `--hero-navy-deep`, and `--hero-scrim` over the image. This image-legibility treatment is the only homepage gradient exception to the no-decorative-gradient rule.
+- Structure: full-width navy field with a left-aligned eyebrow, the Homepage Current Weather panel as the primary information and page heading, a primary orange CTA, and right-weighted decorative `public/logo2.png` artwork. The former `달릴 날을 정하는 선명한 방법` headline and supporting race-guide sentence are not rendered.
+- Layout: use `--homepage-content-max` and `--homepage-gutter`; desktop weather/CTA content occupies no more than 52% of the hero and the focal logo image remains fully visible on the right. The weather panel stays in the left copy column at every width and never overlays the header logo or hero logo image. At narrow widths, weather and actions precede the contained artwork without horizontal overflow.
+- Surface: the outer hero remains `--hero-navy` with `--hero-scrim`, while the inner hero canvas is transparent so `public/logo2.png` blends directly over the navy field. The logo is a transparent RGBA cutout, so the hero art shadow follows the visible alpha silhouette rather than a rectangular white canvas.
 - States: the hero itself is static; only its actions receive hover, active, focus-visible, and disabled states.
-- Accessibility: the hero image is decorative when the adjacent copy communicates the same message; otherwise it has concise alt text. Text and controls meet WCAG AA against every part of the image treatment.
+- Accessibility: the hero image is decorative `public/logo2.png` with `alt=""` and `aria-hidden="true"`. Text and controls meet WCAG AA against every part of the image treatment.
 
 ### Homepage Current Weather
-- Structure: a prominent `오늘의 달리기 날씨` region in the hero copy column. Its title is the page `h1`; it shows the resolved city and district, condition, current and apparent temperatures, humidity, cloud cover, precipitation, wind direction and speed, US AQI, PM2.5, PM10, observation time, and visible `Open-Meteo`/`OpenStreetMap` source links without replacing the runner artwork or primary CTA.
+- Structure: a prominent `오늘의 달리기 날씨` region in the hero copy column. Its title is the page `h1`; it shows the resolved city and district, condition, current and apparent temperatures, humidity, cloud cover, precipitation, wind direction and speed, US AQI, PM2.5, PM10, observation time, and visible `Open-Meteo`/`OpenStreetMap` source links without replacing the hero logo artwork or primary CTA.
 - Location policy: after an in-panel disclosure is rendered, request low-accuracy browser geolocation once per application session with a bounded timeout and a ten-minute cache allowance. Permission denial, timeout, unavailable position, or unsupported geolocation falls back to fixed Seoul City Hall coordinates and the known label `서울특별시 중구 · 서울 기준`. Successful coordinates are rounded to two decimal places before weather, air-quality, and city lookup requests and are never rendered, persisted, or logged. The current-position city and district come from one Korean-language OpenStreetMap Nominatim reverse lookup at city/borough detail; a city lookup failure leaves the panel at `현재 위치` without blocking weather.
 - External-service policy: Open-Meteo forecast is required for the ready state. Open-Meteo air quality and OpenStreetMap Nominatim city lookup fail independently and degrade only their own measurements. Nominatim is called at most once per application session, only after a user-triggered page load and successful browser location, with a valid browser Referer and visible OpenStreetMap attribution; the fixed Seoul fallback does not call Nominatim. If traffic can no longer remain well below the public service limit, move the endpoint behind a cache/proxy or replace the provider.
-- Surface: use the existing `--hero-control-surface`, `--hero-control-border`, `--hero-text`, `--hero-text-muted`, `--cta-orange`, `--radius-card`, and `--hero-art-shadow` tokens. Weather condition icons are inline semantic SVG line art; emoji and third-party icon fonts are not allowed.
+- Surface: use glass `--hero-control-surface` with `backdrop-filter: blur(12px)`, `--hero-control-border`, `--hero-text`, `--hero-text-muted`, `--hero-accent`, `--radius-card`, and `--hero-art-shadow` preserving the translucent navy card material, readable text hierarchy, border, radius, and panel shadow. Weather condition icons are inline semantic SVG line art; emoji and third-party icon fonts are not allowed.
 - States: loading reserves the final panel footprint, ready exposes every available measurement, missing air quality renders `정보 없음` in its measurement slot, and unavailable replaces the required forecast measurements with an honest short message. City lookup and air-quality failures never change a valid forecast into unavailable; location fallback is a ready state, not an error state.
-- Responsive behavior: desktop and tablet keep the panel in the left copy column with the complete runner artwork in the right visual column. At 375px the copy column, CTA, and then artwork stack in document order. No weather state may cover the logo, runner, or navigation.
+- Responsive behavior: desktop and tablet keep the panel in the left copy column with the complete hero logo artwork in the right visual column. At 375px the copy column, CTA, and then artwork stack in document order. The panel width is `min(100%, calc(var(--space-10) * 11))`, so narrow widths remain contained and no header or artwork overlap is allowed.
 - Accessibility: the region has the label `현재 날씨`, uses `aria-live="polite"` for asynchronous updates, includes visible units, and states whether values use current position or Seoul fallback. Weather condition and location never rely on icon or color alone.
 
 ### Orange Primary CTA
@@ -125,9 +125,9 @@ Content is constrained to 1200px. At 375px the calendar becomes an event-only li
 - Accessibility: selecting a specific year or month moves focus to the first visible month heading when a result exists. Headings retain the visible page focus treatment, and filtering has no motion dependency.
 
 ### Monthly Race Rows
-- Structure: a month heading and result count followed by repeated rows containing a fixed-aspect inline SVG athletic/city thumbnail with an overlaid semantic date, race title, venue, registration status, course metadata, and a favorite button. Rows link to race details, but the favorite button is a separate control and must not be nested inside the link.
+- Structure: a month heading and result count followed by repeated rows containing one fixed-aspect media slot with an accepted event-specific remote logo or, when that logo is missing, rejected before rendering, or fails to load, `public/logo1.png` exactly once. The media retains its overlaid semantic date beside the race title, venue, registration status, course metadata, and favorite button. Rows link to race details, but the favorite button is a separate control and must not be nested inside the link. The former generated athletic/city inline SVG is not a Monthly Race Row media source or fallback.
 - Layout: use `--race-row-gap`, `--race-row-padding`, and `--radius-card`. Desktop metadata reads in one horizontal rhythm; at narrow widths it wraps beneath the title without truncating the date, venue, or status. Long titles use a single-line ellipsis only where the existing grid-width rule requires it.
-- Surface: rows use `--surface-elevated`, `--row-border`, and `--row-shadow`; thumbnails use `--radius-media` and a consistent `--race-thumbnail-ratio` crop.
+- Surface: rows use `--surface-elevated`, `--row-border`, and `--row-shadow`; the media slot uses `--radius-media` and the fixed `--race-thumbnail-ratio` 4:3 transparent frame. The contained logo image box, not the full slot, uses the always-white `--logo-surface` in light and dark modes.
 - States: row link default, hover, active, and focus-visible; unavailable metadata uses the existing `--quiet` treatment and remains explicit in text.
 - Calendar relationship: monthly rows are the homepage browse presentation and do not remove or weaken Month Navigation, calendar cells, the seven-column grid at 768px, or the event-only mobile calendar list requirements.
 
@@ -138,7 +138,7 @@ Content is constrained to 1200px. At 375px the calendar becomes an event-only li
 - Accessibility: minimum 44px square target, an honest Korean accessible label ending in `기능 준비 중`, and a disabled attribute so it is not focusable or presented as saved state.
 
 ### Calendar Brand Header
-- Structure: a full-width `--hero-navy-deep` header with the same ring-prefixed wordmark motif as the homepage and one prominent `메인으로 돌아가기` anchor targeting `#`.
+- Structure: a full-width `--hero-navy-deep` header containing the shared home/wordmark anchor with `public/logo2.png` and one prominent `메인으로 돌아가기` anchor targeting `#`. The shared image is the complete visual brand treatment; do not add generated marks or adjacent wordmark text.
 - Layout: content aligns to `--homepage-content-max` with `--homepage-gutter`; wordmark and return action remain visible in one row from 375px upward.
 - States: the return action uses the Orange Primary CTA default, stronger hover, active, and `--accent` focus-visible states.
 - Accessibility: the wordmark and return action are distinct links with descriptive Korean names and at least 44px targets.
@@ -159,6 +159,16 @@ Content is constrained to 1200px. At 375px the calendar becomes an event-only li
 - Surface: selects use `--filter-surface`, `--filter-border`, and `--filter-text`; reset uses the same family with a navy text accent.
 - States: default, hover where actionable, focus-visible, and reset active. Focus uses the shared semantic `--accent` ring with sufficient separation from the control edge.
 - Accessibility: native select behavior and exact filter/reset semantics remain unchanged.
+
+### Shared Brand and Race Images
+- Shared header brand: the home-link anchor in Homepage Header and the wordmark anchor in Calendar Brand Header both render `public/logo2.png`. The image does not replace either anchor's existing accessible Korean name, 44px target, focus-visible treatment, destination, or current-page semantics; use `alt=""` when that name is supplied by the anchor. The image is bounded by `--brand-image-max-block`, keeps its intrinsic aspect ratio, and may shrink without overlapping navigation, search, menu, return action, hero content, or the viewport at 375px, 768px, or 1280px.
+- Homepage hero artwork: `.home-hero-visual > img.home-hero-art` renders `public/logo2.png` as a decorative contained image with `alt=""` and `aria-hidden="true"`. It is centered in the visual column, uses contain sizing, and never creates horizontal overflow at 375px, 768px, or 1280px.
+- Supplied-asset generation: generate `public/logo1.png` as the opaque-white PNG fallback from its supplied source file without modifying that source. Generate `public/logo2.png` from the supplied `로고 2-3.png` source by using the effective visible-alpha crop with proportional breathing room, aspect-preserving contain into an exactly 237×256 RGBA cutout, preserving the blue emblem, enclosed white runner/head/speed-streak details, black MARATHON text, cyan RUN text, intentional semitransparent glow, colors, geometry, and transparency while dropping the near-invisible alpha tail. Do not stretch, recolor, mutate, or overwrite either supplied source file.
+- Monthly-row scope: an event-specific remote logo is allowed only in the Monthly Race Row media slot. It must not appear in either header, the hero, calendar cells, navigation, filters, metadata, or any other shared surface. Generic site logos, source-site branding, and favicons are prohibited, including as inferred substitutes for an event logo.
+- Fallback policy: each Monthly Race Row renders `public/logo1.png` exactly once in its single media slot when the event logo URL is missing, rejected by the approved URL policy, or fails to load. Error replacement removes or replaces the failed remote image rather than appending a second image; success never renders the fallback alongside the remote logo.
+- Media geometry: the row media slot remains the fixed `--race-thumbnail-ratio` 4:3 transparent frame. The accepted remote event logo or required `public/logo1.png` fallback keeps its intrinsic aspect ratio, is centered and contained inside that slot, paints `--logo-surface` only on the rendered image box, and never crops, stretches, or inherits a dark background; `--logo-surface` remains white in light and dark modes. Generated athletic/city SVG artwork is not a Monthly Race Row fallback.
+- Date and semantics: the existing semantic date overlay and `--thumbnail-date-surface` remain above every row media variant, including remote-logo success and fallback. All race media in this slot is decorative beside the race title and date, so image `alt` is exactly empty (`alt=""`); the row link's existing accessible name continues to carry race name, date, venue, and status.
+- States: `success` shows one accepted remote event logo; `missing` immediately shows one fallback; `loading` reserves the final 4:3 transparent slot without layout shift and does not expose broken-image text; `error-fallback` replaces one rejected or failed remote logo with one fallback. These states preserve the centered white image box, row geometry, date legibility, focus behavior, and no-overlap/no-horizontal-overflow requirements at 375px, 768px, and 1280px.
 
 ## 6. Motion & Interaction
 
@@ -184,7 +194,7 @@ These tokens originated in the homepage composition extracted from `프론트 �
 | Hero accent | `--hero-accent` | `#ffb08a` | Small orange text and line icons on navy; 4.8:1 against the weather panel composite |
 | Hero control border | `--hero-control-border` | `rgba(255, 255, 255, 0.42)` | Header menu/search outlines |
 | Hero control surface | `--hero-control-surface` | `rgba(255, 255, 255, 0.12)` | Read-only header search fill |
-| Hero art shadow | `--hero-art-shadow` | `0 16px 24px rgba(7, 43, 80, 0.36)` | SVG hero depth |
+| Hero art shadow | `--hero-art-shadow` | `0 16px 24px rgba(7, 43, 80, 0.36)` | Weather panel depth and alpha-aware `logo2.png` silhouette shadow |
 | CTA orange | `--cta-orange` | `#c2410c` | Primary homepage action; white contrast 5.18:1 |
 | CTA orange hover | `--cta-orange-hover` | `#8f2708` | Primary action hover; white contrast remains above AA and uses a 2px lift |
 | CTA orange active | `--cta-orange-active` | `#762006` | Primary action pressed; white contrast remains above AA |
@@ -197,11 +207,6 @@ These tokens originated in the homepage composition extracted from `프론트 �
 | Filter selected text | `--filter-selected-text` | `#ffffff` | Selected filter text |
 | Row border | `--row-border` | `#e3e8ec` | Monthly race row hairline |
 | Row shadow | `--row-shadow` | `0 8px 22px rgba(17, 43, 67, 0.08)` | Quiet row and filter elevation |
-| Thumbnail sky | `--thumbnail-sky` | `#dceaf3` | Deterministic race-row SVG background |
-| Thumbnail alternate sky | `--thumbnail-sky-alt` | `#e7e1f2` | Deterministic second thumbnail palette |
-| Thumbnail warm sky | `--thumbnail-sky-warm` | `#f2e2d5` | Deterministic third thumbnail palette |
-| Thumbnail city | `--thumbnail-city` | `#0b3a67` | Deterministic race-row skyline |
-| Thumbnail track | `--thumbnail-track` | `#c2410c` | Deterministic race-row running track |
 | Thumbnail date surface | `--thumbnail-date-surface` | `rgba(7, 43, 80, 0.9)` | Readable date overlay |
 | Shared content max | `--homepage-content-max` | `1200px` | Homepage and calendar brand/schedule alignment |
 | Shared gutter | `--homepage-gutter` | `clamp(16px, 5vw, 56px)` | Responsive horizontal breathing room |
@@ -211,9 +216,11 @@ These tokens originated in the homepage composition extracted from `프론트 �
 | Pill radius | `--radius-pill` | `999px` | CTA and compact filter triggers |
 | Card radius | `--radius-card` | `12px` | Filter surface and race rows |
 | Media radius | `--radius-media` | `9px` | Race thumbnails |
+| Shared brand image max block | `--brand-image-max-block` | `32px` | Eight base units; maximum rendered block size for `public/logo2.png` in both shared header anchors |
+| Logo surface | `--logo-surface` | `#ffffff` | Always-white rendered image-box surface for monthly-row remote and fallback logos in light and dark modes; the surrounding 4:3 media slot and homepage hero inner stay transparent |
 | Race row gap | `--race-row-gap` | `16px` | Thumbnail, content, and actions |
 | Race row padding | `--race-row-padding` | `14px` | Race row internal spacing |
-| Race thumbnail ratio | `--race-thumbnail-ratio` | `4 / 3` | Stable race thumbnail crop |
+| Race thumbnail ratio | `--race-thumbnail-ratio` | `4 / 3` | Stable Monthly Race Row logo frame |
 
 ### Shared Dark Mode
 
@@ -233,11 +240,6 @@ Under `prefers-color-scheme: dark`, both homepage and calendar replace every sha
 | Selected control | `--filter-selected` | `#285b88` |
 | Selected control text | `--filter-selected-text` | `#ffffff` |
 | Elevated shadow | `--row-shadow` | `0 12px 28px rgba(0, 0, 0, 0.32)` |
-| Thumbnail sky | `--thumbnail-sky` | `#29485f` |
-| Alternate thumbnail sky | `--thumbnail-sky-alt` | `#433b59` |
-| Warm thumbnail sky | `--thumbnail-sky-warm` | `#574133` |
-| Thumbnail city | `--thumbnail-city` | `#8bb3d1` |
-| Thumbnail track | `--thumbnail-track` | `#f08a55` |
 | Thumbnail date surface | `--thumbnail-date-surface` | `rgba(6, 29, 51, 0.94)` |
 
 Dark-mode body text, race links, native controls, and homepage rows must each retain at least 4.5:1 computed contrast at 375px and 1280px. Focus outlines use dark `--accent` (`#4ccc98`) and remain visually distinct from orange actions.
