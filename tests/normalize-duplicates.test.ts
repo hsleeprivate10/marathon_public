@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Race } from "../src/contract.js";
 import { dedupKey, deduplicateRaces } from "../src/normalize.js";
+import { isAggregatorUrl } from "../src/race-identity.js";
 
 function race(name: string, applicationUrl: string, overrides: Partial<Race> = {}): Race {
   const timestamp = "2026-07-18T00:00:00.000Z";
@@ -22,6 +23,54 @@ function race(name: string, applicationUrl: string, overrides: Partial<Race> = {
 }
 
 describe("cross-source duplicate normalization", () => {
+  it("keeps the first duplicate logo when both sources provide one", () => {
+    // Given
+    const primaryLogoUrl = "https://primary.example/race-logo.png";
+    const races = [
+      race("2026 서울오픈마라톤", "https://seoulopen.or.kr/", { logoUrl: primaryLogoUrl }),
+      race("2026서울오픈마라톤", "https://other.example/apply", {
+        logoUrl: "https://secondary.example/race-logo.png",
+        sources: ["marathonmoa"],
+      }),
+    ];
+
+    // When
+    const result = deduplicateRaces(races);
+
+    // Then
+    expect(result).toHaveLength(1);
+    expect(result[0]?.logoUrl).toBe(primaryLogoUrl);
+  });
+
+  it("fills a missing primary logo from the secondary duplicate", () => {
+    // Given
+    const secondaryLogoUrl = "https://secondary.example/race-logo.png";
+    const races = [
+      race("2026 서울오픈마라톤", "https://seoulopen.or.kr/"),
+      race("2026서울오픈마라톤", "https://other.example/apply", {
+        logoUrl: secondaryLogoUrl,
+        sources: ["marathonmoa"],
+      }),
+    ];
+
+    // When
+    const result = deduplicateRaces(races);
+
+    // Then
+    expect(result).toHaveLength(1);
+    expect(result[0]?.logoUrl).toBe(secondaryLogoUrl);
+  });
+
+  it.each([
+    "https://e-marathon.co.kr/race/view/1",
+    "https://gorunning.co.kr/races/1/race/",
+    "https://marathonmate.com/race/abc",
+    "https://marathonmoa.com/events/abc",
+    "https://runningmap.com/race/race-a",
+  ])("recognizes an alternate aggregator host: %s", (url) => {
+    expect(isAggregatorUrl(url)).toBe(true);
+  });
+
   it("merges spacing variants with the same date", () => {
     const races = [
       race("2026 서울오픈마라톤", "https://seoulopen.or.kr/"),
@@ -42,6 +91,21 @@ describe("cross-source duplicate normalization", () => {
       race("2026 JUST RUN10 하반기 세종", "https://runten.co.kr/", {
         venue: "세종 세종마루공원 밑 금강변",
         sources: ["marathonmoa"],
+      }),
+    ];
+
+    expect(deduplicateRaces(races)).toHaveLength(1);
+  });
+
+  it("merges source-detail links that retain a shared external identity URL", () => {
+    const races = [
+      race("2026 하반기 JUST RUN10 세종", "https://gorunning.kr/races/1200/sejong", {
+        urlScheme: "https://runten.co.kr/",
+      }),
+      race("2026 JUST RUN10 하반기 세종", "https://marathon.me.kr/events/abc-123", {
+        venue: "세종 세종마루공원 밑 금강변",
+        sources: ["marathonmoa"],
+        urlScheme: "https://runten.co.kr/",
       }),
     ];
 
@@ -197,5 +261,27 @@ describe("cross-source duplicate normalization", () => {
     ];
 
     expect(deduplicateRaces(races)).toHaveLength(2);
+  });
+
+  it("deduplicates distinct official pages after they materialize the same event", () => {
+    const races = [
+      race("2026 한강 나이트 런", "https://official.example/event-a", {
+        sources: ["official-sites"],
+        verified: true,
+        officialSiteUrl: "https://official.example/event-a",
+        venue: "한강공원",
+      }),
+      race("2026 한강 나이트 런", "https://backup.example/event-b", {
+        sources: ["official-sites"],
+        verified: true,
+        officialSiteUrl: "https://backup.example/event-b",
+        venue: "한강공원",
+      }),
+    ];
+
+    const result = deduplicateRaces(races);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]?.sources).toEqual(["official-sites"]);
   });
 });

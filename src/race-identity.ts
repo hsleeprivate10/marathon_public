@@ -1,16 +1,5 @@
 import type { Race } from "./contract.js";
-
-const aggregatorHosts = new Set([
-  "emarathon.or.kr",
-  "gorunning.kr",
-  "kaaf.or.kr",
-  "kormarathon.com",
-  "m.kaaf.or.kr",
-  "maedal.com",
-  "marathon.me.kr",
-  "marathonmate.store",
-  "runningmap.kr",
-]);
+import { isKnownAggregatorUrl } from "./official-sites/application-url-policy.js";
 
 type Destination = {
   readonly host: string;
@@ -34,7 +23,7 @@ export function compactRaceName(name: string): string {
 }
 
 export function isAggregatorUrl(raw: string): boolean {
-  return aggregatorHosts.has(canonicalHostname(new URL(raw).hostname));
+  return isKnownAggregatorUrl(raw);
 }
 
 export function representsSameEvent(left: Race, right: Race): boolean {
@@ -65,9 +54,10 @@ export function representsSameEvent(left: Race, right: Race): boolean {
 }
 
 function destination(race: Race): Destination | undefined {
-  const url = new URL(race.applicationUrl);
+  const identityUrl = race.urlScheme ?? race.applicationUrl;
+  const url = new URL(identityUrl);
   const host = canonicalHostname(url.hostname);
-  if (aggregatorHosts.has(host)) return undefined;
+  if (isKnownAggregatorUrl(identityUrl)) return undefined;
   const path = url.pathname.replace(/\/+$/, "") || "/";
   return { host, key: `${host}${path}${url.search}` };
 }

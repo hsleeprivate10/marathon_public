@@ -107,6 +107,7 @@ export function mergeRaces(existing: Race, incoming: Race): Race {
     courses: existingCourses,
     applicationUrl: preferredApplicationUrl(existing.applicationUrl, incoming.applicationUrl),
     officialSiteUrl: existing.officialSiteUrl ?? incoming.officialSiteUrl,
+    logoUrl: existing.logoUrl ?? incoming.logoUrl,
     notes: mergeNotes(existing.notes, incoming.notes),
     urlScheme: existing.urlScheme ?? incoming.urlScheme,
     sources: mergedSources,
