@@ -263,32 +263,52 @@ for (const width of visualViewports) {
       const weather = page.getByRole("region", { name: "현재 날씨" });
       await expect(weather).toContainText("서울 기준");
 
-      // Then the panel follows its responsive position, fits its surface, and does not overflow.
+      // Then the hero surfaces use their documented tokens, remain readable, and do not overflow.
+      await expect(page.locator(".home-hero-inner")).toHaveCSS(
+        "background-color",
+        "rgba(0, 0, 0, 0)",
+      );
+      await expect(page.locator(".home-header")).toHaveCSS("background-color", "rgb(7, 43, 80)");
+      await expect(page.locator(".home-calendar-cta")).toHaveCSS(
+        "background-color",
+        "rgb(194, 65, 12)",
+      );
+      await expect(page.locator(".home-hero-art")).toHaveCSS("filter", /drop-shadow/u);
+      await expect(page.locator(".home-hero-art")).toHaveCSS("object-fit", "contain");
+      await expect(weather).toHaveCSS("background-color", "rgba(255, 255, 255, 0.12)");
+      await expect(weather).toHaveCSS("backdrop-filter", "blur(12px)");
+      await expect(weather).toHaveCSS("border-radius", "12px");
       await expect(weather).toHaveCSS("position", "relative");
       const weatherBox = await weather.boundingBox();
-      const runnerBox = await page.locator(".home-runner").boundingBox();
+      const artworkBox = await page.locator(".home-hero-art").boundingBox();
       const brandBox = await page.locator(".home-brand").boundingBox();
-      if (weatherBox === null || runnerBox === null || brandBox === null)
+      if (weatherBox === null || artworkBox === null || brandBox === null)
         throw new Error("Hero elements must render");
-      const overlapsRunner =
-        weatherBox.x < runnerBox.x + runnerBox.width &&
-        weatherBox.x + weatherBox.width > runnerBox.x &&
-        weatherBox.y < runnerBox.y + runnerBox.height &&
-        weatherBox.y + weatherBox.height > runnerBox.y;
+      if (width === 1280) {
+        const expectedWeatherWidth = await weather.evaluate((panel) => {
+          const space10 = getComputedStyle(panel).getPropertyValue("--space-10");
+          return Number.parseFloat(space10) * 11;
+        });
+        expect(weatherBox.width).toBe(expectedWeatherWidth);
+      }
+      const overlapsArtwork =
+        weatherBox.x < artworkBox.x + artworkBox.width &&
+        weatherBox.x + weatherBox.width > artworkBox.x &&
+        weatherBox.y < artworkBox.y + artworkBox.height &&
+        weatherBox.y + weatherBox.height > artworkBox.y;
       const overlapsBrand =
         weatherBox.x < brandBox.x + brandBox.width &&
         weatherBox.x + weatherBox.width > brandBox.x &&
         weatherBox.y < brandBox.y + brandBox.height &&
         weatherBox.y + weatherBox.height > brandBox.y;
-      expect(overlapsRunner).toBe(false);
+      expect(overlapsArtwork).toBe(false);
       expect(overlapsBrand).toBe(false);
       const layout = await weather.evaluate((panel) => ({
         panelFits:
           panel.scrollWidth <= panel.clientWidth && panel.scrollHeight <= panel.clientHeight,
         pageOverflows: document.documentElement.scrollWidth > window.innerWidth,
       }));
-      expect(layout.panelFits).toBe(true);
-      expect(layout.pageOverflows).toBe(false);
+      expect(layout).toEqual({ panelFits: true, pageOverflows: false });
       expect(signals.consoleErrors).toEqual([]);
       expect(signals.pageErrors).toEqual([]);
       await page.screenshot({

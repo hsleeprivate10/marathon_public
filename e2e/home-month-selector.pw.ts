@@ -220,6 +220,29 @@ test("public races data loads without assuming calendar shape", async ({ page })
   await expect(page.getByLabel("대회 연도 선택")).toBeVisible();
   await expect(page.getByLabel("대회 월 선택")).toBeVisible();
   await expect(page.getByText(/^데이터 갱신 /)).toBeVisible();
+  const applicationLinks = await page
+    .locator(".home-race-link")
+    .evaluateAll((links) =>
+      links.flatMap((link) => (link instanceof HTMLAnchorElement ? [link.href] : [])),
+    );
+  const nonRacePages = new Set([
+    "https://emarathon.or.kr/",
+    "https://gorunning.kr/",
+    "https://gorunning.kr/races/",
+    "https://m.kaaf.or.kr/mobile/info/inside_all.asp",
+    "https://www.kormarathon.com/",
+    "https://maedal.com/",
+    "https://marathon.me.kr/events",
+    "https://marathonmate.store/domestic",
+    "https://runningmap.kr/",
+    "http://www.bsama.co.kr/index.asp",
+    "https://wmac2026.com/kr/",
+    "http://vrun.kr/index.asp",
+    "http://www.gyeongjumarathon.com/home",
+    "http://xn--439a68tboh.kr/index.asp",
+  ]);
+  expect(applicationLinks.length).toBeGreaterThan(0);
+  expect(applicationLinks.filter((href) => nonRacePages.has(href))).toEqual([]);
   expect(signals.consoleErrors).toEqual([]);
   expect(signals.pageErrors).toEqual([]);
 });

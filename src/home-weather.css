@@ -14,7 +14,7 @@
 .home-weather {
   position: relative;
   z-index: 1;
-  width: min(100%, calc(var(--space-10) * 9));
+  width: min(100%, calc(var(--space-10) * 11));
   min-height: calc(var(--space-10) * 8);
   margin-top: var(--space-2);
   padding: var(--space-4);
@@ -22,8 +22,8 @@
   border-radius: var(--radius-card);
   background: var(--hero-control-surface);
   box-shadow: var(--hero-art-shadow);
-  color: var(--hero-text);
   backdrop-filter: blur(12px);
+  color: var(--hero-text);
 }
 
 .home-weather-heading,
