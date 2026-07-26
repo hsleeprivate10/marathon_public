@@ -6,30 +6,36 @@
  */
 import type { Race } from "../contract.js";
 import { computeRegistrationStatus } from "../contract.js";
-import { safeApplicationUrl } from "../official-sites/application-url-policy.js";
+import { KNOWN_AGGREGATOR_HOSTS } from "../official-sites/application-url-policy.js";
 import { discoverRaceLinks } from "../official-sites/discovery.js";
+import { detailFixtureName, safeMarathonMoaDetailUrl } from "./detail-source-url.js";
 import {
   type AdapterResult,
   type CollectConfig,
   type DiscoveredRaceLink,
   INTER_FETCH_DELAY_MS,
   type SourceAdapter,
+  type SourceDiscoveryCandidate,
   failedMetadata,
   fetchWithTimeout,
   readFixture,
   sleep,
+  sourceDetailUrl,
+  sourceId,
+  sourceResultUrl,
   successMetadata,
+  transientIdentityHint,
 } from "./types.js";
 
 const BASE_URL = "https://marathon.me.kr";
+const LIST_URL = `${BASE_URL}/events`;
+const DETAIL_BUDGET = 20;
 
 interface ParsedRace {
   readonly name: string;
   readonly eventDate: string;
   readonly venue: string;
   readonly detailUrl: string;
-  readonly sourceHtml: string;
-  readonly registrationUrl: string | null;
 }
 
 export function parseMarathonMoaRegistrationUrls(html: string): ReadonlyMap<string, string> {
@@ -87,13 +93,11 @@ function raceBlocks(html: string): readonly string[] {
 
 function parseMarathonMoaHtml(html: string): ReadonlyArray<ParsedRace> {
   const races: ParsedRace[] = [];
-  const registrations = parseMarathonMoaRegistrationUrls(html);
 
   for (const match of html.matchAll(
     /<a\b[^>]*href="(\/events\/[0-9a-f-]{36})"[^>]*>([\s\S]*?)<\/a>/gi,
   )) {
     const detailPath = match[1];
-    const sourceHtml = match[0];
     const body = match[2] ?? "";
     const nameMatch = body.match(/<h[2-4][^>]*>([^<]{4,100})<\/h[2-4]>/i);
     const dateMatch = body.match(/(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})/);
@@ -104,8 +108,6 @@ function parseMarathonMoaHtml(html: string): ReadonlyArray<ParsedRace> {
       eventDate: `${dateMatch[1]}-${(dateMatch[2] ?? "").padStart(2, "0")}-${(dateMatch[3] ?? "").padStart(2, "0")}`,
       venue: venueMatch?.[1]?.trim() ?? "미상",
       detailUrl: `${BASE_URL}${detailPath}`,
-      sourceHtml,
-      registrationUrl: registrations.get(detailPath.slice("/events/".length)) ?? null,
     });
   }
 
@@ -129,13 +131,36 @@ function parseMarathonMoaHtml(html: string): ReadonlyArray<ParsedRace> {
             ? hrefMatch[1]
             : `${BASE_URL}${hrefMatch[1]}`
           : BASE_URL,
-        sourceHtml,
-        registrationUrl: null,
       });
     }
   }
 
   return races;
+}
+
+function identityEvidence(parsed: ParsedRace): SourceDiscoveryCandidate["identityEvidence"] {
+  return {
+    titleHints: [transientIdentityHint(parsed.name)],
+    dateHints: [transientIdentityHint(parsed.eventDate)],
+    organizerHints: [],
+  };
+}
+
+function transientRace(parsed: ParsedRace, detailUrl: string, now: string, id: string): Race {
+  return {
+    name: parsed.name,
+    eventDate: parsed.eventDate,
+    registrationDeadline: null,
+    venue: parsed.venue,
+    courses: [],
+    applicationUrl: detailUrl,
+    sources: [id],
+    verified: false,
+    lastVerified: null,
+    updatedAt: now,
+    generatedAt: now,
+    registrationStatus: computeRegistrationStatus(null, parsed.eventDate),
+  };
 }
 
 export const MarathonMoaAdapter: SourceAdapter = {
@@ -151,86 +176,94 @@ export const MarathonMoaAdapter: SourceAdapter = {
       if (config.fixtureDir) {
         homeHtml = await readFixture(config.fixtureDir, "home.html");
       } else {
-        homeHtml = await fetchWithTimeout(`${BASE_URL}/events`);
+        homeHtml = await fetchWithTimeout(LIST_URL);
       }
 
       const parsed = parseMarathonMoaHtml(homeHtml);
       const now = new Date().toISOString();
-      const races: Race[] = [];
-      const discoveredLinks: DiscoveredRaceLink[] = [];
-      let remainingDetailBudget = config.detailBudget ?? 20;
+      const discoveryCandidates: SourceDiscoveryCandidate[] = [];
+      const discoveredOfficialCandidates: DiscoveredRaceLink[] = [];
+      let sourceDetailsFetched = 0;
+      let rejectedCandidates = 0;
+      let budgetSkipped = 0;
+      let remainingDetailBudget = config.detailBudget ?? DETAIL_BUDGET;
 
       for (const p of parsed) {
-        const embeddedRegistrationUrl = safeApplicationUrl(p.registrationUrl);
-        const race: Race = {
-          name: p.name,
-          eventDate: p.eventDate,
-          registrationDeadline: null,
-          venue: p.venue,
-          courses: [],
-          applicationUrl:
-            embeddedRegistrationUrl ?? safeApplicationUrl(p.detailUrl) ?? `${BASE_URL}/events`,
-          notes: "Marathon Moa: supplementary community source",
-          sources: [id],
-          verified: false,
-          lastVerified: null,
-          updatedAt: now,
-          generatedAt: now,
-          registrationStatus: computeRegistrationStatus(null, p.eventDate),
-        };
-        let discoveryHtml = p.sourceHtml;
-        if (
-          embeddedRegistrationUrl === null &&
-          config.fixtureDir === undefined &&
-          remainingDetailBudget > 0
-        ) {
-          try {
-            discoveryHtml = await fetchWithTimeout(p.detailUrl);
-            remainingDetailBudget -= 1;
-            await sleep(INTER_FETCH_DELAY_MS);
-          } catch {
-            discoveryHtml = p.sourceHtml;
-          }
+        const detailUrl = safeMarathonMoaDetailUrl(p.detailUrl);
+        if (detailUrl === null) {
+          rejectedCandidates += 1;
+          continue;
         }
-        const links = discoverRaceLinks({
-          race,
-          sourceId: id,
-          sourcePageUrl: p.detailUrl,
-          sourceHosts: ["marathon.me.kr", "marathonmoa.com"],
-          aggregatorHosts: ["marathon.me.kr", "marathonmoa.com"],
-          html: discoveryHtml,
-          raceDetailContext: { present: true },
-        }).filter((link) => {
-          if (link.kind !== "application") return true;
-          const hostname = new URL(link.url).hostname;
-          return hostname !== "marathon.me.kr" && hostname !== "marathonmoa.com";
+        const evidence = identityEvidence(p);
+        discoveryCandidates.push({
+          sourceId: sourceId(id),
+          sourceResultUrl: sourceResultUrl(LIST_URL),
+          sourceDetailUrl: sourceDetailUrl(detailUrl),
+          identityEvidence: evidence,
         });
-        const registrationLink =
-          embeddedRegistrationUrl === null
-            ? (links.find((link) => link.kind === "application") ??
-              links.find((link) => link.kind === "official-site"))
-            : undefined;
-        races.push(registrationLink ? { ...race, applicationUrl: registrationLink.url } : race);
-        discoveredLinks.push(...links);
+        if (remainingDetailBudget <= 0) {
+          budgetSkipped += 1;
+          continue;
+        }
+        remainingDetailBudget -= 1;
+
+        let detailHtml: string;
+        try {
+          detailHtml = config.fixtureDir
+            ? await readFixture(config.fixtureDir, detailFixtureName(detailUrl, BASE_URL))
+            : await fetchWithTimeout(detailUrl);
+        } catch (error) {
+          if (!(error instanceof Error)) throw error;
+          rejectedCandidates += 1;
+          continue;
+        }
+        sourceDetailsFetched += 1;
+        const links = discoverRaceLinks({
+          race: transientRace(p, detailUrl, now, id),
+          sourceId: id,
+          sourcePageUrl: detailUrl,
+          sourceHosts: ["marathon.me.kr", "marathonmoa.com"],
+          aggregatorHosts: KNOWN_AGGREGATOR_HOSTS,
+          html: detailHtml,
+          raceDetailContext: { present: true, sourceDetailUrl: detailUrl },
+        });
+        if (links.length === 0) rejectedCandidates += 1;
+        discoveredOfficialCandidates.push(...links);
+
+        if (config.fixtureDir === undefined) await sleep(INTER_FETCH_DELAY_MS);
       }
 
       return {
-        races,
-        discoveredLinks,
+        discoveryCandidates,
+        discoveredOfficialCandidates,
         metadata: successMetadata(
           id,
-          races.length,
-          races.length > 0
-            ? `Collected ${races.length} races from Marathon Moa`
-            : "No races found in Marathon Moa homepage",
+          discoveryCandidates.length,
+          discoveryCandidates.length > 0
+            ? `Collected ${discoveryCandidates.length} Marathon Moa source-detail candidates`
+            : "No safe Marathon Moa source-detail candidates found in homepage",
         ),
+        stageCounters: {
+          discoveryCandidates: discoveryCandidates.length,
+          sourceDetailsFetched,
+          discoveredOfficialCandidates: discoveredOfficialCandidates.length,
+          rejectedCandidates,
+          budgetSkipped,
+        },
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return {
-        races: [],
-        discoveredLinks: [],
+        discoveryCandidates: [],
+        discoveredOfficialCandidates: [],
         metadata: failedMetadata(id, true, `Marathon Moa failed: ${message}`),
+        stageCounters: {
+          discoveryCandidates: 0,
+          sourceDetailsFetched: 0,
+          discoveredOfficialCandidates: 0,
+          rejectedCandidates: 0,
+          budgetSkipped: 0,
+        },
       };
     }
   },

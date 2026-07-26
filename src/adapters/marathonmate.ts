@@ -4,29 +4,34 @@
  * MarathonMate (marathonmate.com) is a simple redirect/lander site.
  * Provides minimal race data when SSR content is available.
  */
-import type { Race } from "../contract.js";
-import { computeRegistrationStatus } from "../contract.js";
-import { safeApplicationUrl } from "../official-sites/application-url-policy.js";
+import { type Race, computeRegistrationStatus } from "../contract.js";
+import { KNOWN_AGGREGATOR_HOSTS } from "../official-sites/application-url-policy.js";
 import { discoverRaceLinks } from "../official-sites/discovery.js";
+import { detailFixtureName, safeMarathonMateDetailUrl } from "./detail-source-url.js";
 import {
   type AdapterResult,
   type CollectConfig,
   type DiscoveredRaceLink,
   type SourceAdapter,
+  type SourceDiscoveryCandidate,
   failedMetadata,
   fetchWithTimeout,
   readFixture,
+  sourceDetailUrl,
+  sourceId,
+  sourceResultUrl,
   successMetadata,
+  transientIdentityHint,
 } from "./types.js";
 
 const BASE_URL = "https://marathonmate.store";
+const LIST_URL = `${BASE_URL}/domestic`;
 
 interface ParsedRace {
   readonly name: string;
   readonly eventDate: string;
   readonly venue: string;
   readonly detailUrl: string;
-  readonly sourceHtml: string;
 }
 
 function safeItem(attrs: string): boolean {
@@ -87,8 +92,7 @@ function parseMarathonMateHtml(html: string): ReadonlyArray<ParsedRace> {
           name: text,
           eventDate: `${dateMatch[1]}-${(dateMatch[2] ?? "").padStart(2, "0")}-${(dateMatch[3] ?? "").padStart(2, "0")}`,
           venue: "미상",
-          detailUrl: href.startsWith("http") ? href : `${BASE_URL}/${href.replace(/^\//, "")}`,
-          sourceHtml,
+          detailUrl: safeMarathonMateDetailUrl(href) ?? href,
         });
       }
     }
@@ -96,6 +100,31 @@ function parseMarathonMateHtml(html: string): ReadonlyArray<ParsedRace> {
   }
 
   return races;
+}
+
+function identityEvidence(parsed: ParsedRace): SourceDiscoveryCandidate["identityEvidence"] {
+  return {
+    titleHints: [transientIdentityHint(parsed.name)],
+    dateHints: [transientIdentityHint(parsed.eventDate)],
+    organizerHints: [],
+  };
+}
+
+function transientRace(parsed: ParsedRace, detailUrl: string, now: string, id: string): Race {
+  return {
+    name: parsed.name,
+    eventDate: parsed.eventDate,
+    registrationDeadline: null,
+    venue: parsed.venue,
+    courses: [],
+    applicationUrl: detailUrl,
+    sources: [id],
+    verified: false,
+    lastVerified: null,
+    updatedAt: now,
+    generatedAt: now,
+    registrationStatus: computeRegistrationStatus(null, parsed.eventDate),
+  };
 }
 
 export const MarathonMateAdapter: SourceAdapter = {
@@ -111,63 +140,92 @@ export const MarathonMateAdapter: SourceAdapter = {
       if (config.fixtureDir) {
         homeHtml = await readFixture(config.fixtureDir, "home.html");
       } else {
-        homeHtml = await fetchWithTimeout(`${BASE_URL}/domestic`);
+        homeHtml = await fetchWithTimeout(LIST_URL);
       }
 
       const parsed = parseMarathonMateHtml(homeHtml);
       const now = new Date().toISOString();
-      const races: Race[] = [];
-      const discoveredLinks: DiscoveredRaceLink[] = [];
+      const discoveryCandidates: SourceDiscoveryCandidate[] = [];
+      const discoveredOfficialCandidates: DiscoveredRaceLink[] = [];
+      let sourceDetailsFetched = 0;
+      let rejectedCandidates = 0;
+      let budgetSkipped = 0;
+      let remainingDetailBudget = config.detailBudget ?? 20;
 
       for (const p of parsed) {
-        const race: Race = {
-          name: p.name,
-          eventDate: p.eventDate,
-          registrationDeadline: null,
-          venue: p.venue,
-          courses: [],
-          applicationUrl: safeApplicationUrl(p.detailUrl) ?? `${BASE_URL}/domestic`,
-          notes: "MarathonMate: supplementary source",
-          sources: [id],
-          verified: false,
-          lastVerified: null,
-          updatedAt: now,
-          generatedAt: now,
-          registrationStatus: computeRegistrationStatus(null, p.eventDate),
-        };
-        const links = discoverRaceLinks({
-          race,
-          sourceId: id,
-          sourcePageUrl: `${BASE_URL}/domestic`,
-          sourceHosts: ["marathonmate.store", "marathonmate.com"],
-          aggregatorHosts: ["marathonmate.store", "marathonmate.com"],
-          html: p.sourceHtml,
-          raceDetailContext: { present: true },
+        const detailUrl = safeMarathonMateDetailUrl(p.detailUrl);
+        if (detailUrl === null) {
+          rejectedCandidates += 1;
+          continue;
+        }
+        const evidence = identityEvidence(p);
+        discoveryCandidates.push({
+          sourceId: sourceId(id),
+          sourceResultUrl: sourceResultUrl(LIST_URL),
+          sourceDetailUrl: sourceDetailUrl(detailUrl),
+          identityEvidence: evidence,
         });
-        const registrationLink =
-          links.find((link) => link.kind === "application") ??
-          links.find((link) => link.kind === "official-site");
-        races.push(registrationLink ? { ...race, applicationUrl: registrationLink.url } : race);
-        discoveredLinks.push(...links);
+        if (remainingDetailBudget <= 0) {
+          budgetSkipped += 1;
+          continue;
+        }
+        remainingDetailBudget -= 1;
+
+        let detailHtml: string;
+        try {
+          detailHtml = config.fixtureDir
+            ? await readFixture(config.fixtureDir, detailFixtureName(detailUrl, BASE_URL))
+            : await fetchWithTimeout(detailUrl);
+        } catch (error) {
+          if (!(error instanceof Error)) throw error;
+          rejectedCandidates += 1;
+          continue;
+        }
+        sourceDetailsFetched += 1;
+        const links = discoverRaceLinks({
+          race: transientRace(p, detailUrl, now, id),
+          sourceId: id,
+          sourcePageUrl: detailUrl,
+          sourceHosts: ["marathonmate.store", "marathonmate.com"],
+          aggregatorHosts: KNOWN_AGGREGATOR_HOSTS,
+          html: detailHtml,
+          raceDetailContext: { present: true, sourceDetailUrl: detailUrl },
+        });
+        if (links.length === 0) rejectedCandidates += 1;
+        discoveredOfficialCandidates.push(...links);
       }
 
       return {
-        races,
-        discoveredLinks,
+        discoveryCandidates,
+        discoveredOfficialCandidates,
         metadata: successMetadata(
           id,
-          races.length,
-          races.length > 0
-            ? `Collected ${races.length} races from MarathonMate`
-            : "No races found in MarathonMate homepage",
+          discoveryCandidates.length,
+          discoveryCandidates.length > 0
+            ? `Collected ${discoveryCandidates.length} MarathonMate source-detail candidates`
+            : "No safe MarathonMate source-detail candidates found in homepage",
         ),
+        stageCounters: {
+          discoveryCandidates: discoveryCandidates.length,
+          sourceDetailsFetched,
+          discoveredOfficialCandidates: discoveredOfficialCandidates.length,
+          rejectedCandidates,
+          budgetSkipped,
+        },
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return {
-        races: [],
-        discoveredLinks: [],
+        discoveryCandidates: [],
+        discoveredOfficialCandidates: [],
         metadata: failedMetadata(id, true, `MarathonMate failed: ${message}`),
+        stageCounters: {
+          discoveryCandidates: 0,
+          sourceDetailsFetched: 0,
+          discoveredOfficialCandidates: 0,
+          rejectedCandidates: 0,
+          budgetSkipped: 0,
+        },
       };
     }
   },

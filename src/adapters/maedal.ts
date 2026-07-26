@@ -6,19 +6,27 @@
  * This adapter extracts what it can from SSR and stays metadata-only otherwise.
  */
 import type { Race } from "../contract.js";
+import { KNOWN_AGGREGATOR_HOSTS } from "../official-sites/application-url-policy.js";
 import { discoverRaceLinks } from "../official-sites/discovery.js";
+import { detailFixtureName, safeMaedalDetailUrl } from "./detail-source-url.js";
 import {
   type AdapterResult,
   type CollectConfig,
   type DiscoveredRaceLink,
   type SourceAdapter,
+  type SourceDiscoveryCandidate,
   failedMetadata,
   fetchWithTimeout,
   readFixture,
+  sourceDetailUrl,
+  sourceId,
+  sourceResultUrl,
   successMetadata,
+  transientIdentityHint,
 } from "./types.js";
 
 const BASE_URL = "https://maedal.com";
+const DETAIL_BUDGET = 20;
 
 interface ParsedRace {
   readonly name: string;
@@ -104,6 +112,31 @@ function parseMaedalHtml(html: string): ReadonlyArray<ParsedRace> {
   return races;
 }
 
+function identityEvidence(parsed: ParsedRace): SourceDiscoveryCandidate["identityEvidence"] {
+  return {
+    titleHints: [transientIdentityHint(parsed.name)],
+    dateHints: [transientIdentityHint(parsed.eventDate)],
+    organizerHints: [],
+  };
+}
+
+function transientRace(parsed: ParsedRace, detailUrl: string, now: string, id: string): Race {
+  return {
+    name: parsed.name,
+    eventDate: parsed.eventDate,
+    registrationDeadline: null,
+    venue: parsed.venue,
+    courses: [],
+    applicationUrl: detailUrl,
+    sources: [id],
+    verified: false,
+    lastVerified: null,
+    updatedAt: now,
+    generatedAt: now,
+    registrationStatus: "unknown",
+  };
+}
+
 export const MaedalAdapter: SourceAdapter = {
   id: "maedal",
   name: "Maedal",
@@ -118,7 +151,8 @@ export const MaedalAdapter: SourceAdapter = {
         // Try home first (which has race links), then list
         try {
           listHtml = await readFixture(config.fixtureDir, "home.html");
-        } catch {
+        } catch (error) {
+          if (!(error instanceof Error)) throw error;
           listHtml = await readFixture(config.fixtureDir, "list.html");
         }
       } else {
@@ -127,59 +161,86 @@ export const MaedalAdapter: SourceAdapter = {
 
       const parsed = parseMaedalHtml(listHtml);
       const now = new Date().toISOString();
-      const races: Race[] = [];
-      const discoveredLinks: DiscoveredRaceLink[] = [];
+      const discoveryCandidates: SourceDiscoveryCandidate[] = [];
+      const discoveredOfficialCandidates: DiscoveredRaceLink[] = [];
+      let sourceDetailsFetched = 0;
+      let rejectedCandidates = 0;
+      let budgetSkipped = 0;
+      let remainingDetailBudget = config.detailBudget ?? DETAIL_BUDGET;
 
       for (const p of parsed) {
-        // Maedal is metadata-only: we don't have prices or dates from SSR
-        // Preserve what we have and mark prices as unknown
-        const race: Race = {
-          name: p.name,
-          eventDate: p.eventDate,
-          registrationDeadline: null,
-          venue: p.venue,
-          courses: [],
-          applicationUrl: p.detailUrl,
-          notes: "Maedal: price/date data requires client-side rendering",
-          sources: [id],
-          verified: false,
-          lastVerified: null,
-          updatedAt: now,
-          generatedAt: now,
-          registrationStatus: "unknown",
-        };
-        const links = discoverRaceLinks({
-          race,
-          sourceId: id,
-          sourcePageUrl: BASE_URL,
-          sourceHosts: ["maedal.com"],
-          aggregatorHosts: ["maedal.com"],
-          html: p.sourceHtml,
-          raceDetailContext: { present: true },
+        const detailUrl = safeMaedalDetailUrl(p.detailUrl);
+        if (detailUrl === null) {
+          rejectedCandidates += 1;
+          continue;
+        }
+        const evidence = identityEvidence(p);
+        discoveryCandidates.push({
+          sourceId: sourceId(id),
+          sourceResultUrl: sourceResultUrl(BASE_URL),
+          sourceDetailUrl: sourceDetailUrl(detailUrl),
+          identityEvidence: evidence,
         });
-        const registrationLink =
-          links.find((link) => link.kind === "application") ??
-          links.find((link) => link.kind === "official-site");
-        races.push(registrationLink ? { ...race, applicationUrl: registrationLink.url } : race);
-        discoveredLinks.push(...links);
+        if (remainingDetailBudget <= 0) {
+          budgetSkipped += 1;
+          continue;
+        }
+        remainingDetailBudget -= 1;
+
+        let detailHtml: string;
+        try {
+          detailHtml = config.fixtureDir
+            ? await readFixture(config.fixtureDir, detailFixtureName(detailUrl, BASE_URL))
+            : await fetchWithTimeout(detailUrl);
+        } catch (error) {
+          if (!(error instanceof Error)) throw error;
+          rejectedCandidates += 1;
+          continue;
+        }
+        sourceDetailsFetched += 1;
+        const links = discoverRaceLinks({
+          race: transientRace(p, detailUrl, now, id),
+          sourceId: id,
+          sourcePageUrl: detailUrl,
+          sourceHosts: ["maedal.com"],
+          aggregatorHosts: KNOWN_AGGREGATOR_HOSTS,
+          html: detailHtml,
+          raceDetailContext: { present: true, sourceDetailUrl: detailUrl },
+        });
+        if (links.length === 0) rejectedCandidates += 1;
+        discoveredOfficialCandidates.push(...links);
       }
 
       const message =
-        races.length > 0
-          ? `Collected ${races.length} races from Maedal (metadata-only, prices/dates absent from SSR)`
-          : "No races found in Maedal SSR payload";
+        discoveryCandidates.length > 0
+          ? `Collected ${discoveryCandidates.length} Maedal source-detail candidates`
+          : "No safe Maedal source-detail candidates found in SSR payload";
 
       return {
-        races,
-        discoveredLinks,
-        metadata: successMetadata(id, races.length, message),
+        discoveryCandidates,
+        discoveredOfficialCandidates,
+        metadata: successMetadata(id, discoveryCandidates.length, message),
+        stageCounters: {
+          discoveryCandidates: discoveryCandidates.length,
+          sourceDetailsFetched,
+          discoveredOfficialCandidates: discoveredOfficialCandidates.length,
+          rejectedCandidates,
+          budgetSkipped,
+        },
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return {
-        races: [],
-        discoveredLinks: [],
+        discoveryCandidates: [],
+        discoveredOfficialCandidates: [],
         metadata: failedMetadata(id, true, `Maedal failed: ${message}`),
+        stageCounters: {
+          discoveryCandidates: 0,
+          sourceDetailsFetched: 0,
+          discoveredOfficialCandidates: 0,
+          rejectedCandidates: 0,
+          budgetSkipped: 0,
+        },
       };
     }
   },
