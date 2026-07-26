@@ -1,29 +1,42 @@
 /**
  * Collection orchestrator — runs all adapters sequentially, deduplicates,
- * computes registration status, sorts, validates, and writes races.json.
+ * materializes official pages, deduplicates, computes registration status, sorts,
+ * validates, and writes races.json.
  *
  * All adapter failures are recorded in collectionMetadata but never break output.
- * A valid JSON file is always written, even if every adapter fails.
+ * Live runs preserve the existing output instead of writing an empty file.
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { adapters } from "./adapters/index.js";
 import {
+  type AdapterStageCounters,
   type CollectConfig,
   type DiscoveredRaceLink,
   INTER_FETCH_DELAY_MS,
   type SourceAdapter,
+  type SourceDiscoveryCandidate,
   failedMetadata,
   sleep,
 } from "./adapters/types.js";
-import { CollectionOutputSchema, type Race, RaceSchema, type SourceRecord } from "./contract.js";
+import { CollectionOutputSchema, type Race, type SourceRecord } from "./contract.js";
 import { computeRegistrationStatus } from "./contract.js";
-import { dedupKey, deduplicateRaceCollection, sortRaces } from "./normalize.js";
-import { type OfficialPageLoader, enrichOfficialSites } from "./official-sites/enrichment.js";
+import { deduplicateRaceCollection, sortRaces } from "./normalize.js";
+import {
+  type OfficialEnrichmentInput,
+  type OfficialPageLoader,
+  enrichOfficialSites,
+} from "./official-sites/enrichment.js";
 import { fetchOfficialPage } from "./official-sites/fetch.js";
 import { createFixtureOfficialPageLoader } from "./official-sites/fixture-loader.js";
 
 const OFFICIAL_FETCH_BUDGET = 40;
+
+type AdapterCollection = {
+  readonly discoveryCandidates: readonly SourceDiscoveryCandidate[];
+  readonly discoveredOfficialCandidates: readonly DiscoveredRaceLink[];
+  readonly stageCounters: AdapterStageCounters;
+};
 
 export interface OrchestratorOptions {
   /** Root of the project (for public/races.json output) */
@@ -51,8 +64,7 @@ export async function collect(
 ): Promise<ReturnType<typeof CollectionOutputSchema.parse>> {
   const generatedAt = internals.now?.() ?? new Date().toISOString();
   const metadata: SourceRecord[] = [];
-  const allRaces: Race[] = [];
-  const discoveredLinks: DiscoveredRaceLink[] = [];
+  const adapterCollections: AdapterCollection[] = [];
 
   // Run adapters sequentially (rate-limit courtesy)
   for (const adapter of internals.adapters ?? adapters) {
@@ -75,45 +87,23 @@ export async function collect(
     }
     metadata.push(result.metadata);
 
-    // Only include successfully collected races
     if (result.metadata.succeeded) {
-      const validRaces = result.races.flatMap((race) => {
-        const parsed = RaceSchema.safeParse({ ...race, generatedAt });
-        return parsed.success ? [parsed.data] : [];
+      adapterCollections.push({
+        discoveryCandidates: result.discoveryCandidates,
+        discoveredOfficialCandidates: result.discoveredOfficialCandidates,
+        stageCounters: result.stageCounters,
       });
-      allRaces.push(...validRaces);
-      const normalizedKeys = new Map(
-        validRaces.map((race) => [
-          dedupKey(race),
-          dedupKey({ ...race, name: race.name.replaceAll("&amp;", "&") }),
-        ]),
-      );
-      discoveredLinks.push(
-        ...result.discoveredLinks.map((link) => ({
-          ...link,
-          dedupKey: normalizedKeys.get(link.dedupKey) ?? link.dedupKey,
-        })),
-      );
     }
   }
 
-  // Deduplicate and sort
-  const deduplicated = deduplicateRaceCollection(allRaces);
-  const deduped = deduplicated.races;
-  const reboundLinks = discoveredLinks.map((link) => ({
-    ...link,
-    dedupKey: deduplicated.aliases.get(link.dedupKey) ?? link.dedupKey,
-  }));
+  const officialInput: OfficialEnrichmentInput = {
+    discoveryCandidates: adapterCollections.flatMap((collection) => collection.discoveryCandidates),
+    discoveredOfficialCandidates: adapterCollections.flatMap(
+      (collection) => collection.discoveredOfficialCandidates,
+    ),
+  };
 
-  // Recompute registration status for all races (may have changed since collection)
-  const refreshed: Race[] = deduped.map((race) => ({
-    ...race,
-    registrationStatus: computeRegistrationStatus(race.registrationDeadline, race.eventDate),
-    generatedAt,
-    updatedAt: race.updatedAt || generatedAt,
-  }));
-
-  let enriched = refreshed;
+  let materialized: readonly Race[] = [];
   try {
     let fixtureFailure: string | null = null;
     let fixtureLoader: OfficialPageLoader | undefined;
@@ -129,7 +119,7 @@ export async function collect(
     }
     const liveFetch = internals.fetchOfficialPage ?? fetchOfficialPage;
     const loadPage: OfficialPageLoader = fixtureLoader ?? ((url) => liveFetch(url));
-    const result = await enrichOfficialSites(refreshed, reboundLinks, {
+    const officialResult = await enrichOfficialSites(officialInput, {
       today: generatedAt.slice(0, 10),
       verifiedAt: generatedAt,
       maxFetches: OFFICIAL_FETCH_BUDGET,
@@ -138,13 +128,13 @@ export async function collect(
       loadPage,
       sleep: internals.sleep ?? sleep,
     });
-    enriched = [...result.races];
+    materialized = officialResult.races;
     metadata.push({
       id: "official-sites",
       attempted: true,
       succeeded: fixtureFailure === null,
-      recordCount: result.counts.accepted,
-      message: `${enrichmentMessage(result.counts)}${
+      recordCount: officialResult.counts.accepted,
+      message: `${enrichmentMessage(officialResult.counts)}${
         fixtureFailure === null ? "" : ` error=${fixtureFailure}`
       }`,
     });
@@ -159,7 +149,17 @@ export async function collect(
     });
   }
 
-  const sorted = sortRaces(enriched);
+  const deduplicated = deduplicateRaceCollection([...materialized]);
+  const refreshed: Race[] = deduplicated.races.map((race) => {
+    const publishableRace = { ...race, urlScheme: undefined };
+    return {
+      ...publishableRace,
+      registrationStatus: computeRegistrationStatus(race.registrationDeadline, race.eventDate),
+      generatedAt,
+      updatedAt: race.updatedAt || generatedAt,
+    };
+  });
+  const sorted = sortRaces(refreshed);
 
   if (options.fixtureBaseDir === undefined) {
     const sourceMetadata = metadata.filter((item) => item.id !== "official-sites");
