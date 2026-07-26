@@ -7,50 +7,35 @@
  */
 import type { Race } from "../contract.js";
 import { computeRegistrationStatus } from "../contract.js";
-import { canonicalCourses } from "../courses.js";
+import { KNOWN_AGGREGATOR_HOSTS } from "../official-sites/application-url-policy.js";
 import { discoverRaceLinks } from "../official-sites/discovery.js";
 import { detailFixtureName, safeKorMarathonDetailUrl } from "./detail-source-url.js";
 import {
   type AdapterResult,
+  type AdapterStageCounters,
   type CollectConfig,
   type DiscoveredRaceLink,
   type SourceAdapter,
+  type SourceDiscoveryCandidate,
   failedMetadata,
   fetchWithTimeout,
   readFixture,
+  sourceDetailUrl,
+  sourceId,
+  sourceResultUrl,
   successMetadata,
+  transientIdentityHint,
 } from "./types.js";
 
 const BASE_URL = "https://www.kormarathon.com";
-const KNOWN_SOURCE_HOSTS = [
-  "gorunning.kr",
-  "www.gorunning.kr",
-  "gorunning.co.kr",
-  "www.gorunning.co.kr",
-  "kormarathon.com",
-  "www.kormarathon.com",
-  "emarathon.or.kr",
-  "www.emarathon.or.kr",
-  "e-marathon.co.kr",
-  "www.e-marathon.co.kr",
-  "runningmap.kr",
-  "www.runningmap.kr",
-  "runningmap.com",
-  "www.runningmap.com",
-  "maedal.com",
-  "www.maedal.com",
-  "m.kaaf.or.kr",
-  "kaaf.or.kr",
-  "www.kaaf.or.kr",
-  "marathon.me.kr",
-  "www.marathon.me.kr",
-  "marathonmoa.com",
-  "www.marathonmoa.com",
-  "marathonmate.store",
-  "www.marathonmate.store",
-] as const;
-const SOURCE_HOSTS = KNOWN_SOURCE_HOSTS;
-const AGGREGATOR_HOSTS = KNOWN_SOURCE_HOSTS;
+const SOURCE_HOSTS = ["kormarathon.com"] as const;
+const EMPTY_COUNTERS: AdapterStageCounters = {
+  discoveryCandidates: 0,
+  sourceDetailsFetched: 0,
+  discoveredOfficialCandidates: 0,
+  rejectedCandidates: 0,
+  budgetSkipped: 0,
+};
 
 function discoverDetailLinks(
   race: Race,
@@ -62,18 +47,15 @@ function discoverDetailLinks(
     sourceId: "kormarathon",
     sourcePageUrl,
     sourceHosts: SOURCE_HOSTS,
-    aggregatorHosts: AGGREGATOR_HOSTS,
+    aggregatorHosts: KNOWN_AGGREGATOR_HOSTS,
     html: detailHtml,
-    raceDetailContext: { present: true },
+    raceDetailContext: { present: true, sourceDetailUrl: sourcePageUrl },
   });
 }
 
 interface ParsedRace {
   readonly name: string;
   readonly eventDate: string;
-  readonly venue: string;
-  readonly registrationDeadline: string | null;
-  readonly courses: ReadonlyArray<{ readonly name: string; readonly price: number | null }>;
   readonly detailUrl: string | null;
 }
 
@@ -102,16 +84,10 @@ function parseKorMarathonHtml(html: string): ReadonlyArray<ParsedRace> {
         if (name && name.length > 2) {
           const startDate = typeof data.startDate === "string" ? data.startDate : "";
           const eventDate = normalizeDate(startDate);
-          const location = isRecord(data.location) ? data.location : undefined;
-          const venue = typeof location?.name === "string" ? location.name : "미상";
-
           if (eventDate !== null) {
             races.push({
               name,
               eventDate,
-              venue,
-              registrationDeadline: null,
-              courses: [],
               detailUrl:
                 typeof data.identifier === "string"
                   ? safeKorMarathonDetailUrl(`/ko/race/${data.identifier}`)
@@ -134,16 +110,12 @@ function parseKorMarathonHtml(html: string): ReadonlyArray<ParsedRace> {
       .replace(/\\\\/g, "\\");
     const nameMatch = decoded.match(/"name":"([^"]{4,80})"/);
     const dateMatch = decoded.match(/"date":"(\d{4}-\d{2}-\d{2})"/);
-    const venueMatch = decoded.match(/"venue":"([^"]+)"/);
     const idMatch = decoded.match(/"id":"([^"]+)"/);
 
     if (nameMatch?.[1] && dateMatch?.[1]) {
       races.push({
         name: nameMatch[1],
         eventDate: dateMatch[1],
-        venue: venueMatch?.[1] ?? "미상",
-        registrationDeadline: null,
-        courses: [],
         detailUrl:
           idMatch?.[1] === undefined ? null : safeKorMarathonDetailUrl(`/ko/race/${idMatch[1]}`),
       });
@@ -162,9 +134,6 @@ function parseKorMarathonHtml(html: string): ReadonlyArray<ParsedRace> {
       races.push({
         name: nameTag[1].trim(),
         eventDate: `${dateTag[1]}-${dateTag[2]?.padStart(2, "0")}-${dateTag[3]?.padStart(2, "0")}`,
-        venue: "미상",
-        registrationDeadline: null,
-        courses: [],
         detailUrl: null,
       });
     }
@@ -172,6 +141,43 @@ function parseKorMarathonHtml(html: string): ReadonlyArray<ParsedRace> {
   }
 
   return races;
+}
+
+function candidateFromParsedRace(
+  parsed: ParsedRace,
+  detailUrl: string,
+  listUrl: string,
+): SourceDiscoveryCandidate {
+  return {
+    sourceId: sourceId("kormarathon"),
+    sourceResultUrl: sourceResultUrl(listUrl),
+    sourceDetailUrl: sourceDetailUrl(detailUrl),
+    identityEvidence: {
+      titleHints: [transientIdentityHint(parsed.name)],
+      dateHints: [transientIdentityHint(parsed.eventDate)],
+      organizerHints: [],
+    },
+  };
+}
+
+function raceForDiscovery(candidate: SourceDiscoveryCandidate, now: string): Race {
+  const name =
+    candidate.identityEvidence.titleHints[0] ?? transientIdentityHint("source detail race");
+  const eventDate = candidate.identityEvidence.dateHints[0] ?? transientIdentityHint("1900-01-01");
+  return {
+    name,
+    eventDate,
+    registrationDeadline: null,
+    venue: "미상",
+    courses: [],
+    applicationUrl: candidate.sourceDetailUrl,
+    sources: ["kormarathon"],
+    verified: false,
+    lastVerified: null,
+    updatedAt: now,
+    generatedAt: now,
+    registrationStatus: computeRegistrationStatus(null, eventDate),
+  };
 }
 
 function normalizeDate(raw: string): string | null {
@@ -199,72 +205,77 @@ export const KorMarathonAdapter: SourceAdapter = {
         listHtml = await fetchWithTimeout(`${BASE_URL}/ko/marathon-calendar`);
       }
 
+      const listUrl = `${BASE_URL}/ko/marathon-calendar`;
       const parsed = parseKorMarathonHtml(listHtml);
       const now = new Date().toISOString();
       const seen = new Set<string>();
-      const races: Race[] = [];
-      const discoveredLinks: DiscoveredRaceLink[] = [];
+      const discoveryCandidates: SourceDiscoveryCandidate[] = [];
+      const discoveredOfficialCandidates: DiscoveredRaceLink[] = [];
+      let sourceDetailsFetched = 0;
+      let rejectedCandidates = 0;
+      let budgetSkipped = 0;
       let remainingDetailBudget = config.detailBudget ?? 20;
 
       for (const p of parsed) {
         const key = `${p.name}|${p.eventDate}`;
         if (seen.has(key)) continue;
         seen.add(key);
-
-        const courses = canonicalCourses(
-          p.courses.map((course) => ({ ...course, priceSource: "structured" as const })),
-        );
-
-        const race: Race = {
-          name: p.name,
-          eventDate: p.eventDate,
-          registrationDeadline: p.registrationDeadline,
-          venue: p.venue,
-          courses,
-          applicationUrl: p.detailUrl ?? BASE_URL,
-          sources: [id],
-          verified: true,
-          lastVerified: now,
-          updatedAt: now,
-          generatedAt: now,
-          registrationStatus: computeRegistrationStatus(p.registrationDeadline, p.eventDate),
-        };
-        let links: readonly DiscoveredRaceLink[] = [];
-        if (remainingDetailBudget > 0 && p.detailUrl !== null) {
-          remainingDetailBudget -= 1;
-          try {
-            const detailHtml = config.fixtureDir
-              ? await readFixture(config.fixtureDir, detailFixtureName(p.detailUrl, BASE_URL))
-              : await fetchWithTimeout(p.detailUrl);
-            links = discoverDetailLinks(race, detailHtml, p.detailUrl);
-          } catch (error) {
-            if (!(error instanceof Error)) throw error;
-          }
+        if (p.detailUrl === null) {
+          rejectedCandidates += 1;
+          continue;
         }
-        const registrationLink =
-          links.find((link) => link.kind === "application") ??
-          links.find((link) => link.kind === "official-site");
-        races.push(
-          registrationLink === undefined ? race : { ...race, applicationUrl: registrationLink.url },
+        const candidate = candidateFromParsedRace(p, p.detailUrl, listUrl);
+        discoveryCandidates.push(candidate);
+        if (remainingDetailBudget <= 0) {
+          budgetSkipped += 1;
+          continue;
+        }
+        remainingDetailBudget -= 1;
+        let detailHtml: string;
+        try {
+          detailHtml = config.fixtureDir
+            ? await readFixture(config.fixtureDir, detailFixtureName(p.detailUrl, BASE_URL))
+            : await fetchWithTimeout(p.detailUrl);
+        } catch (error) {
+          if (!(error instanceof Error)) throw error;
+          rejectedCandidates += 1;
+          continue;
+        }
+        sourceDetailsFetched += 1;
+        const links = discoverDetailLinks(
+          raceForDiscovery(candidate, now),
+          detailHtml,
+          p.detailUrl,
         );
-        discoveredLinks.push(...links);
+        if (links.length === 0) rejectedCandidates += 1;
+        discoveredOfficialCandidates.push(...links);
       }
 
+      const counters: AdapterStageCounters = {
+        discoveryCandidates: discoveryCandidates.length,
+        sourceDetailsFetched,
+        discoveredOfficialCandidates: discoveredOfficialCandidates.length,
+        rejectedCandidates,
+        budgetSkipped,
+      };
+
       return {
-        races,
-        discoveredLinks,
+        discoveryCandidates,
+        discoveredOfficialCandidates,
         metadata: successMetadata(
           id,
-          races.length,
-          `Collected ${races.length} races from KorMarathon`,
+          discoveredOfficialCandidates.length,
+          `Discovered ${discoveryCandidates.length} KorMarathon source-detail candidates; fetched ${sourceDetailsFetched}; official candidates ${discoveredOfficialCandidates.length}; rejected ${rejectedCandidates}; budget skipped ${budgetSkipped}`,
         ),
+        stageCounters: counters,
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return {
-        races: [],
-        discoveredLinks: [],
+        discoveryCandidates: [],
+        discoveredOfficialCandidates: [],
         metadata: failedMetadata(id, true, `KorMarathon failed: ${message}`),
+        stageCounters: EMPTY_COUNTERS,
       };
     }
   },

@@ -2,25 +2,38 @@
  * KAAF adapter — legacy ASP, verification only.
  *
  * KAAF (kaaf.or.kr) is a classic ASP site with legacy encoding (EUC-KR).
- * It provides only basic event/date/place verification — no pricing or course data.
- * This adapter extracts minimal info for cross-referencing with other sources.
+ * List entries are source-detail discovery hints only; final publication must
+ * come from an accepted official event page.
  */
+import { readFile } from "node:fs/promises";
 import type { Race } from "../contract.js";
-import { computeRegistrationStatus } from "../contract.js";
-import { safeApplicationUrl } from "../official-sites/application-url-policy.js";
+import {
+  KNOWN_AGGREGATOR_HOSTS,
+  isGenericHomepageUrl,
+} from "../official-sites/application-url-policy.js";
 import { discoverRaceLinks } from "../official-sites/discovery.js";
+import { detailFixtureName, safeKaafDetailUrl } from "./detail-source-url.js";
 import {
   type AdapterResult,
   type CollectConfig,
   type DiscoveredRaceLink,
   type SourceAdapter,
+  type SourceDiscoveryCandidate,
   failedMetadata,
   fetchWithTimeout,
-  readFixture,
+  sourceDetailUrl,
+  sourceId,
+  sourceResultUrl,
   successMetadata,
+  transientIdentityHint,
 } from "./types.js";
 
 const BASE_URL = "https://m.kaaf.or.kr";
+const LIST_URL = `${BASE_URL}/mobile/info/inside_all.asp`;
+const DETAIL_BUDGET = 20;
+const UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
+const EUC_KR_DECODER = new TextDecoder("euc-kr");
+const RESULT_PATH_TOKENS = new Set(["record", "records", "result", "results", "timing"]);
 
 interface ParsedRace {
   readonly name: string;
@@ -72,7 +85,7 @@ function parseKaafHtml(html: string): ReadonlyArray<ParsedRace> {
           name: text,
           eventDate: `${dateMatch[1]}-${(dateMatch[2] ?? "").padStart(2, "0")}-${(dateMatch[3] ?? "").padStart(2, "0")}`,
           venue: "미상",
-          detailUrl: href.startsWith("http") ? href : `${BASE_URL}/${href.replace(/^\//, "")}`,
+          detailUrl: new URL(href, LIST_URL).toString(),
           sourceHtml,
         });
       }
@@ -83,77 +96,149 @@ function parseKaafHtml(html: string): ReadonlyArray<ParsedRace> {
   return races;
 }
 
+function decodeKaafFixture(bytes: Uint8Array): string {
+  try {
+    return UTF8_DECODER.decode(bytes);
+  } catch (error) {
+    if (error instanceof TypeError) return EUC_KR_DECODER.decode(bytes);
+    throw error;
+  }
+}
+
+async function readKaafFixture(fixtureDir: string, filename: string): Promise<string> {
+  return decodeKaafFixture(await readFile(`${fixtureDir}/${filename}`));
+}
+
+function identityEvidence(parsed: ParsedRace): SourceDiscoveryCandidate["identityEvidence"] {
+  return {
+    titleHints: [transientIdentityHint(parsed.name)],
+    dateHints: [transientIdentityHint(parsed.eventDate)],
+    organizerHints: [],
+  };
+}
+
+function transientRace(parsed: ParsedRace, detailUrl: string, now: string, id: string): Race {
+  return {
+    name: parsed.name,
+    eventDate: parsed.eventDate,
+    registrationDeadline: null,
+    venue: parsed.venue,
+    courses: [],
+    applicationUrl: detailUrl,
+    sources: [id],
+    verified: false,
+    lastVerified: null,
+    updatedAt: now,
+    generatedAt: now,
+    registrationStatus: "unknown",
+  };
+}
+
+function isKaafOfficialCandidate(link: DiscoveredRaceLink): boolean {
+  if (link.kind !== "official-site") return false;
+  if (isGenericHomepageUrl(link.url)) return false;
+  const path = new URL(link.url).pathname.toLowerCase();
+  return !path.split(/[\/._-]+/u).some((segment) => RESULT_PATH_TOKENS.has(segment));
+}
+
 export const KaafAdapter: SourceAdapter = {
   id: "kaaf",
   name: "KAAF",
   baseUrl: BASE_URL,
-  allowedPaths: ["/mobile/info/inside_all.asp"],
+  allowedPaths: ["/mobile/info/inside_all.asp", "/mobile/info/inside_view.asp"],
 
   async collect(config: CollectConfig): Promise<AdapterResult> {
     const id = this.id;
     try {
       let homeHtml: string;
       if (config.fixtureDir) {
-        homeHtml = await readFixture(config.fixtureDir, "home.html");
+        homeHtml = await readKaafFixture(config.fixtureDir, "home.html");
       } else {
-        homeHtml = await fetchWithTimeout(`${BASE_URL}/mobile/info/inside_all.asp`);
+        homeHtml = await fetchWithTimeout(LIST_URL);
       }
 
       const parsed = parseKaafHtml(homeHtml);
       const now = new Date().toISOString();
-      const races: Race[] = [];
-      const discoveredLinks: DiscoveredRaceLink[] = [];
+      const discoveryCandidates: SourceDiscoveryCandidate[] = [];
+      const discoveredOfficialCandidates: DiscoveredRaceLink[] = [];
+      let sourceDetailsFetched = 0;
+      let rejectedCandidates = 0;
+      let budgetSkipped = 0;
+      let remainingDetailBudget = config.detailBudget ?? DETAIL_BUDGET;
 
       for (const p of parsed) {
-        const race: Race = {
-          name: p.name,
-          eventDate: p.eventDate,
-          registrationDeadline: null,
-          venue: p.venue,
-          courses: [],
-          applicationUrl:
-            safeApplicationUrl(p.detailUrl) ?? `${BASE_URL}/mobile/info/inside_all.asp`,
-          notes: "KAAF: verification-only source, no pricing/course data",
-          sources: [id],
-          verified: false,
-          lastVerified: null,
-          updatedAt: now,
-          generatedAt: now,
-          registrationStatus: computeRegistrationStatus(null, p.eventDate),
-        };
-        const links = discoverRaceLinks({
-          race,
-          sourceId: id,
-          sourcePageUrl: `${BASE_URL}/mobile/info/inside_all.asp`,
-          sourceHosts: ["m.kaaf.or.kr", "kaaf.or.kr"],
-          aggregatorHosts: ["m.kaaf.or.kr", "kaaf.or.kr"],
-          html: p.sourceHtml,
-          raceDetailContext: { present: true },
+        const detailUrl = safeKaafDetailUrl(p.detailUrl);
+        if (detailUrl === null) {
+          rejectedCandidates += 1;
+          continue;
+        }
+        const evidence = identityEvidence(p);
+        discoveryCandidates.push({
+          sourceId: sourceId(id),
+          sourceResultUrl: sourceResultUrl(LIST_URL),
+          sourceDetailUrl: sourceDetailUrl(detailUrl),
+          identityEvidence: evidence,
         });
-        const registrationLink =
-          links.find((link) => link.kind === "application") ??
-          links.find((link) => link.kind === "official-site");
-        races.push(registrationLink ? { ...race, applicationUrl: registrationLink.url } : race);
-        discoveredLinks.push(...links);
+        if (remainingDetailBudget <= 0) {
+          budgetSkipped += 1;
+          continue;
+        }
+        remainingDetailBudget -= 1;
+
+        let detailHtml: string;
+        try {
+          detailHtml = config.fixtureDir
+            ? await readKaafFixture(config.fixtureDir, detailFixtureName(detailUrl, BASE_URL))
+            : await fetchWithTimeout(detailUrl);
+        } catch (error) {
+          if (!(error instanceof Error)) throw error;
+          rejectedCandidates += 1;
+          continue;
+        }
+        sourceDetailsFetched += 1;
+        const links = discoverRaceLinks({
+          race: transientRace(p, detailUrl, now, id),
+          sourceId: id,
+          sourcePageUrl: detailUrl,
+          sourceHosts: ["m.kaaf.or.kr", "kaaf.or.kr"],
+          aggregatorHosts: KNOWN_AGGREGATOR_HOSTS,
+          html: detailHtml,
+          raceDetailContext: { present: true, sourceDetailUrl: detailUrl },
+        }).filter(isKaafOfficialCandidate);
+        if (links.length === 0) rejectedCandidates += 1;
+        discoveredOfficialCandidates.push(...links);
       }
 
+      const message =
+        discoveryCandidates.length > 0
+          ? `Collected ${discoveryCandidates.length} KAAF source-detail candidates`
+          : "No safe KAAF source-detail candidates found in homepage";
+
       return {
-        races,
-        discoveredLinks,
-        metadata: successMetadata(
-          id,
-          races.length,
-          races.length > 0
-            ? `Verified ${races.length} events from KAAF (verification only)`
-            : "No marathon events found in KAAF homepage",
-        ),
+        discoveryCandidates,
+        discoveredOfficialCandidates,
+        metadata: successMetadata(id, discoveryCandidates.length, message),
+        stageCounters: {
+          discoveryCandidates: discoveryCandidates.length,
+          sourceDetailsFetched,
+          discoveredOfficialCandidates: discoveredOfficialCandidates.length,
+          rejectedCandidates,
+          budgetSkipped,
+        },
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return {
-        races: [],
-        discoveredLinks: [],
+        discoveryCandidates: [],
+        discoveredOfficialCandidates: [],
         metadata: failedMetadata(id, true, `KAAF failed: ${message}`),
+        stageCounters: {
+          discoveryCandidates: 0,
+          sourceDetailsFetched: 0,
+          discoveredOfficialCandidates: 0,
+          rejectedCandidates: 0,
+          budgetSkipped: 0,
+        },
       };
     }
   },
