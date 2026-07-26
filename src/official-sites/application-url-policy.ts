@@ -32,6 +32,34 @@ const REGISTRATION_DESTINATION_LABELS = new Set([
   "join",
   "enroll",
 ]);
+export const KNOWN_AGGREGATOR_HOSTS = [
+  "e-marathon.co.kr",
+  "emarathon.or.kr",
+  "gorunning.co.kr",
+  "gorunning.kr",
+  "kaaf.or.kr",
+  "kormarathon.com",
+  "m.kaaf.or.kr",
+  "maedal.com",
+  "marathon.me.kr",
+  "marathonmate.com",
+  "marathonmate.store",
+  "marathonmoa.com",
+  "runningmap.com",
+  "runningmap.kr",
+] as const;
+const AGGREGATOR_HOSTS = new Set<string>(KNOWN_AGGREGATOR_HOSTS);
+const RACE_ID_QUERY_KEYS = new Set([
+  "event",
+  "eventid",
+  "id",
+  "idx",
+  "no",
+  "race",
+  "raceid",
+  "wr_id",
+]);
+
 export function safeApplicationUrl(raw: string | null, base?: string): string | null {
   if (raw === null) return null;
   try {
@@ -65,6 +93,60 @@ export function safeApplicationUrl(raw: string | null, base?: string): string | 
   } catch {
     return null;
   }
+}
+
+export function isGenericHomepageUrl(raw: string): boolean {
+  const url = new URL(raw);
+  const path = decodedPath(url.pathname);
+  if (path === null) return true;
+  const normalizedPath = path.replace(/\/+$/u, "") || "/";
+  const isLandingPath = /^(?:\/|\/(?:home|main|index)(?:\.[a-z0-9]+)?|\/(?:en|ko|kr))$/u.test(
+    normalizedPath,
+  );
+  if (!isLandingPath) return false;
+  return ![...url.searchParams].some(
+    ([key, value]) => RACE_ID_QUERY_KEYS.has(key.toLowerCase()) && value.trim() !== "",
+  );
+}
+
+export function isKnownAggregatorUrl(raw: string): boolean {
+  const url = new URL(raw);
+  return AGGREGATOR_HOSTS.has(normalizedHostname(url).replace(/^www\./u, ""));
+}
+
+export function safeRaceApplicationUrl(raw: string | null, base?: string): string | null {
+  const safeUrl = safeApplicationUrl(raw, base);
+  if (safeUrl === null) return null;
+  if (isGenericHomepageUrl(safeUrl)) return null;
+  const url = new URL(safeUrl);
+  const host = normalizedHostname(url).replace(/^www\./u, "");
+  if (!AGGREGATOR_HOSTS.has(host)) return safeUrl;
+  const path = decodedPath(url.pathname);
+  if (path === null) return null;
+
+  let isRaceSpecific = false;
+  if (host === "emarathon.or.kr" || host === "e-marathon.co.kr") {
+    isRaceSpecific =
+      /^\/race\/view\/[a-z0-9][a-z0-9_-]*$/u.test(path) ||
+      (path === "/bbs/board.php" && /^\?bo_table=emara04_01&wr_id=\d+$/u.test(url.search));
+  } else if (host === "gorunning.kr" || host === "gorunning.co.kr") {
+    isRaceSpecific =
+      /^\/races\/(?:[a-z0-9][a-z0-9_-]*|\d+\/[a-z0-9][a-z0-9_-]*\/?)$/u.test(path) ||
+      (path === "/race/view.php" && /^\?idx=\d+$/u.test(url.search));
+  } else if (host === "kormarathon.com") {
+    isRaceSpecific = /^\/ko\/race\/[a-z0-9][a-z0-9_-]*$/u.test(path);
+  } else if (host === "runningmap.kr" || host === "runningmap.com") {
+    isRaceSpecific = /^\/race\/(?:view\/)?[\p{L}\p{N}][\p{L}\p{N}_-]*$/u.test(path);
+  } else if (host === "maedal.com") {
+    isRaceSpecific = /^\/races\/[a-z0-9][a-z0-9_-]*$/u.test(path);
+  } else if (host === "marathon.me.kr" || host === "marathonmoa.com") {
+    isRaceSpecific = /^\/events\/[a-z0-9][a-z0-9_-]*$/u.test(path);
+  } else if (host === "marathonmate.store" || host === "marathonmate.com") {
+    isRaceSpecific = /^\/race\/[a-z0-9][a-z0-9_-]*$/u.test(path);
+  } else if (host === "kaaf.or.kr" || host === "m.kaaf.or.kr") {
+    isRaceSpecific = path.endsWith("/inside_view.asp") && /^\?no=\d+$/u.test(url.search);
+  }
+  return isRaceSpecific ? safeUrl : null;
 }
 
 export function safeOfficialPageUrl(raw: string, base?: string): string | null {

@@ -13,7 +13,6 @@ import { MarathonMoaAdapter } from "../src/adapters/marathonmoa.js";
 import { RunningMapAdapter } from "../src/adapters/runningmap.js";
 import type { SourceAdapter } from "../src/adapters/types.js";
 import { RaceSchema } from "../src/contract.js";
-import { safeApplicationUrl } from "../src/official-sites/application-url-policy.js";
 
 const FIXTURES_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "fixtures");
 
@@ -101,7 +100,7 @@ const cases: readonly AdapterCase[] = [
     adapter: MarathonMoaAdapter,
     fixtureDir: "marathonmoa/official-positive",
     fixtureFile: "home.html",
-    sourceOfficialUrl: "https://hangang-night.example.net/home",
+    sourceOfficialUrl: "https://hangang-night.example.net/event/501",
     sourceApplicationUrl: "https://entry.hangang-night.example.net/register?gclid=abc",
     unsafeApplicationUrl: "http://[fc00::1]/register",
     detailBudget: 0,
@@ -109,7 +108,7 @@ const cases: readonly AdapterCase[] = [
   {
     adapter: MarathonMateAdapter,
     fixtureDir: "marathonmate/official-positive",
-    fixtureFile: "home.html",
+    fixtureFile: "L3JhY2UvNzAx.html",
     sourceOfficialUrl: "https://daegu-moonlight.example.com/official",
     sourceApplicationUrl: "https://entry.daegu-moonlight.example.com/join?mc_cid=x",
     unsafeApplicationUrl: "http://[fe80::1]/register",
@@ -121,17 +120,14 @@ const unsafeDetailCases = [
   {
     adapter: KaafAdapter,
     html: '<table><tr><td>2026-08-01</td><td><a href="https://race.local/race/view.asp">서울 경계 마라톤대회</a></td></tr></table>',
-    fallbackApplicationUrl: "https://m.kaaf.or.kr/mobile/info/inside_all.asp",
   },
   {
     adapter: MarathonMoaAdapter,
     html: '<article class="race-card"><a href="http://10.0.0.1/race/501">서울 경계 마라톤</a><span>2026-08-01</span></article>',
-    fallbackApplicationUrl: "https://marathon.me.kr/events",
   },
   {
     adapter: MarathonMateAdapter,
     html: '<div class="race"><a href="http://169.254.1.1/race/701">서울 경계 마라톤</a><time>2026-08-01</time></div>',
-    fallbackApplicationUrl: "https://marathonmate.store/domestic",
   },
 ] as const;
 
@@ -169,13 +165,26 @@ async function collectWithPaymentOfficialSite(item: AdapterCase) {
   }
 }
 
-function canonicalOfficialUrl(raw: string): string {
-  const url = new URL(raw);
-  url.hash = "";
-  for (const key of [...url.searchParams.keys()]) {
-    if (/^(?:utm_|gclid|fbclid|mc_)/i.test(key)) url.searchParams.delete(key);
+async function collectWithGenericHomepageLinks(item: AdapterCase) {
+  const fixtureRoot = await mkdtemp(`${tmpdir()}/marathon-generic-homepage-`);
+  try {
+    await cp(resolve(FIXTURES_DIR, item.fixtureDir), fixtureRoot, { recursive: true });
+    const fixtureFile = resolve(fixtureRoot, item.fixtureFile);
+    const html = await readFile(fixtureFile, "utf8");
+    const withoutApplication = html.replace(
+      item.sourceApplicationUrl,
+      "https://generic-organizer.example/",
+    );
+    const replaced = withoutApplication.replace(
+      item.sourceOfficialUrl,
+      "https://generic-organizer.example/",
+    );
+    if (replaced === html) throw new Error(`fixture URLs not found for ${item.adapter.id}`);
+    await writeFile(fixtureFile, replaced);
+    return await item.adapter.collect({ fixtureDir: fixtureRoot, detailBudget: item.detailBudget });
+  } finally {
+    await rm(fixtureRoot, { recursive: true, force: true });
   }
-  return url.toString();
 }
 
 describe("RaceSchema application URL publication policy", () => {
@@ -202,6 +211,20 @@ describe("RaceSchema application URL publication policy", () => {
     "https://race.example/%63heckout%3Bjsessionid=abc",
     "https://race.example/pay:now",
     "https://race.example/payment~start",
+    "https://emarathon.or.kr",
+    "https://gorunning.kr/races/",
+    "https://m.kaaf.or.kr/mobile/info/inside_all.asp",
+    "https://www.kormarathon.com",
+    "https://maedal.com",
+    "https://marathon.me.kr/events",
+    "https://marathonmate.store/domestic",
+    "https://runningmap.kr",
+    "https://generic-organizer.example/?utm_source=list",
+    "https://generic-organizer.example/#home",
+    "https://generic-organizer.example/main.php",
+    "https://gorunning.kr/race/view.php?idx=123&next=/admin",
+    "https://m.kaaf.or.kr/mobile/info/inside_view.asp?no=7&next=/admin",
+    "https://m.kaaf.or.kr/mobile/info/notice.asp?no=7",
   ])("rejects an unsafe applicationUrl: %s", (applicationUrl) => {
     expect(RaceSchema.safeParse({ ...validRace, applicationUrl }).success).toBe(false);
   });
@@ -210,52 +233,76 @@ describe("RaceSchema application URL publication policy", () => {
     "https://apply.example/register",
     "http://apply.example/register",
     "https://payments-marathon.example/register",
+    "https://m.kaaf.or.kr/mobile/info/inside_view.asp?no=7",
   ])("accepts a public HTTP(S) applicationUrl: %s", (applicationUrl) => {
     expect(RaceSchema.safeParse({ ...validRace, applicationUrl }).success).toBe(true);
   });
+
+  it.each([
+    "https://emarathon.or.kr/bbs/board.php?bo_table=emara04_01&wr_id=1594&next=/admin",
+    "https://emarathon.or.kr/bbs/board.php?wr_id=1594&bo_table=emara04_01",
+    "https://emarathon.or.kr/bbs/board.php?bo_table=emara04_01&wr_id=1594&wr_id=1595",
+  ])("rejects a non-canonical e-Marathon detail query: %s", (applicationUrl) => {
+    expect(RaceSchema.safeParse({ ...validRace, applicationUrl }).success).toBe(false);
+  });
+
+  it.each(["http://localhost/race", "http://10.0.0.1/race", "https://payments.example/checkout"])(
+    "rejects an unsafe urlScheme identity: %s",
+    (urlScheme) => {
+      expect(RaceSchema.safeParse({ ...validRace, urlScheme }).success).toBe(false);
+    },
+  );
 });
 
 describe("adapter application URL publication policy", () => {
   for (const item of cases) {
-    it(`${item.adapter.id}: falls back to the safe official site when the application URL is unsafe`, async () => {
+    it(`${item.adapter.id}: treats source-detail application URLs as negative evidence when unsafe`, async () => {
       const result = await collectWithUnsafeApplication(item);
 
       expect(result.metadata.succeeded).toBe(true);
-      expect(result.races[0]?.applicationUrl).toBe(canonicalOfficialUrl(item.sourceOfficialUrl));
-      expect(result.races.every((race) => RaceSchema.safeParse(race).success)).toBe(true);
-      expect([
-        ...result.races.map((race) => race.applicationUrl),
-        ...result.discoveredLinks.map((link) => link.url),
-      ]).not.toContain(item.unsafeApplicationUrl);
-      expect(result.discoveredLinks.filter((link) => link.kind === "application")).toEqual([]);
+      expect(result).not.toHaveProperty("races");
+      expect(result).not.toHaveProperty("discoveredLinks");
+      expect(result.discoveredOfficialCandidates.map((link) => link.url)).not.toContain(
+        item.unsafeApplicationUrl,
+      );
+      expect(
+        result.discoveredOfficialCandidates.filter((link) => link.kind === "application"),
+      ).toEqual([]);
     });
 
-    it(`${item.adapter.id}: rejects a dedicated payment official URL while retaining its safe application URL`, async () => {
+    it(`${item.adapter.id}: rejects a dedicated payment official URL without retaining it`, async () => {
       const result = await collectWithPaymentOfficialSite(item);
 
       expect(result.metadata.succeeded).toBe(true);
-      const applicationUrl = result.races[0]?.applicationUrl;
-      expect(applicationUrl).toBeDefined();
-      expect(applicationUrl === undefined ? null : safeApplicationUrl(applicationUrl)).toBe(
-        applicationUrl,
-      );
-      expect(result.races.every((race) => RaceSchema.safeParse(race).success)).toBe(true);
-      expect(result.discoveredLinks.map((link) => link.url)).not.toContain(
+      expect(result).not.toHaveProperty("races");
+      expect(result).not.toHaveProperty("discoveredLinks");
+      expect(result.discoveredOfficialCandidates.map((link) => link.url)).not.toContain(
         "https://payments.example/checkout",
       );
+    });
+
+    it(`${item.adapter.id}: never publishes a generic organizer homepage from the adapter stage`, async () => {
+      const result = await collectWithGenericHomepageLinks(item);
+
+      expect(result).not.toHaveProperty("races");
+      expect(result).not.toHaveProperty("discoveredLinks");
+      expect(
+        result.discoveredOfficialCandidates.filter((link) => link.kind === "application"),
+      ).toEqual([]);
     });
   }
 
   for (const item of unsafeDetailCases) {
-    it(`${item.adapter.id}: replaces an unsafe source detail URL with its public source page`, async () => {
+    it(`${item.adapter.id}: does not publish an unsafe source detail URL as its public source page`, async () => {
       const fixtureRoot = await mkdtemp(`${tmpdir()}/marathon-detail-url-`);
       try {
         await writeFile(resolve(fixtureRoot, "home.html"), item.html);
 
         const result = await item.adapter.collect({ fixtureDir: fixtureRoot, detailBudget: 0 });
 
-        expect(result.races[0]?.applicationUrl).toBe(item.fallbackApplicationUrl);
-        expect(result.races.every((race) => RaceSchema.safeParse(race).success)).toBe(true);
+        expect(result).not.toHaveProperty("races");
+        expect(result.discoveryCandidates).toEqual([]);
+        expect(result.discoveredOfficialCandidates).toEqual([]);
       } finally {
         await rm(fixtureRoot, { recursive: true, force: true });
       }

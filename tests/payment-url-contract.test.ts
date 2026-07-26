@@ -7,7 +7,7 @@ const race = {
   registrationDeadline: null,
   venue: "서울",
   courses: [],
-  applicationUrl: "https://race.example/home",
+  applicationUrl: "https://race.example/event",
   sources: ["source"],
   verified: true,
   lastVerified: "2026-07-17T00:00:00.000Z",
