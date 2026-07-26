@@ -40,6 +40,6 @@
     }
   },
   "files": {
-    "ignore": [".tmp", "dist", "node_modules", "public"]
+    "ignore": [".omo", ".omx", ".tmp", "dist", "node_modules", "public"]
   }
 }
