@@ -8,7 +8,9 @@ import { z } from "zod";
 import {
   safeApplicationUrl,
   safeOfficialPageUrl,
+  safeRaceApplicationUrl,
 } from "./official-sites/application-url-policy.js";
+import { safeRaceLogoUrl } from "./race-logo-url.js";
 
 // ---------------------------------------------------------------------------
 // Course & pricing
@@ -63,8 +65,8 @@ const PublicRaceUrlSchema = z
   .string()
   .url()
   .refine(
-    (value) => safeApplicationUrl(value) !== null,
-    "Race URL must be a public non-payment HTTP(S) URL without credentials",
+    (value) => safeRaceApplicationUrl(value) !== null,
+    "Race URL must identify a public race-specific non-payment HTTP(S) page",
   );
 
 const OfficialRaceUrlSchema = z
@@ -91,10 +93,19 @@ export const RaceSchema = z.object({
   /** Primary source URL for the race */
   applicationUrl: PublicRaceUrlSchema,
   officialSiteUrl: OfficialRaceUrlSchema.optional(),
+  logoUrl: z
+    .string()
+    .url()
+    .refine((value) => safeRaceLogoUrl(value) === value, "Logo URL must be canonical and safe")
+    .optional(),
   /** Free-text notes (site-specific caveats) */
   notes: z.string().optional(),
-  /** Canonical URL scheme used for dedup keys */
-  urlScheme: z.string().url().optional(),
+  /** Collection-only identity URL used for dedup keys and removed before publication */
+  urlScheme: z
+    .string()
+    .url()
+    .refine((value) => safeApplicationUrl(value) !== null, "Identity URL must be public and safe")
+    .optional(),
   /** Source adapter IDs that contributed data to this record */
   sources: z.array(z.string()).min(1),
   /** Whether at least one source was recently verified */
@@ -110,6 +121,7 @@ export const RaceSchema = z.object({
 });
 
 export type Race = z.infer<typeof RaceSchema>;
+const PublishedRaceSchema = RaceSchema.omit({ urlScheme: true });
 
 // ---------------------------------------------------------------------------
 // Collection metadata (per-source)
@@ -138,7 +150,7 @@ export const CollectionOutputSchema = z.object({
   /** ISO 8601 datetime of generation */
   generatedAt: z.string().datetime(),
   /** Deduplicated, sorted race records */
-  races: z.array(RaceSchema),
+  races: z.array(PublishedRaceSchema),
   /** Per-source collection metadata */
   collectionMetadata: z.array(SourceRecordSchema),
 });

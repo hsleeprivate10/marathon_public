@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { DiscoveredRaceLink } from "../src/adapters/types.js";
+import {
+  type DiscoveredRaceLink,
+  discoveredOfficialHomepageUrl,
+  sourceDetailUrl,
+  sourceId,
+  transientIdentityHint,
+} from "../src/adapters/types.js";
 import {
   CollectionOutputSchema,
   RaceSchema,
@@ -32,6 +38,79 @@ describe("RaceSchema", () => {
   it("allows officialSiteUrl to be absent", () => {
     const result = RaceSchema.safeParse(validRace);
     expect(result.success).toBe(true);
+  });
+
+  it("retains an absolute HTTPS logoUrl without transforming it", () => {
+    // Given
+    const logoUrl = "https://cdn.example.com/races/seoul-logo.png?size=2#mark";
+
+    // When
+    const result = RaceSchema.safeParse({ ...validRace, logoUrl });
+
+    // Then
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.logoUrl).toBe(logoUrl);
+    }
+  });
+
+  it("retains a canonical logoUrl with one trailing FQDN dot", () => {
+    // Given
+    const logoUrl = "https://cdn.example.com./races/seoul-logo.png";
+
+    // When
+    const result = RaceSchema.safeParse({ ...validRace, logoUrl });
+
+    // Then
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.logoUrl).toBe(logoUrl);
+    }
+  });
+
+  it.each([
+    " https://cdn.example.com/races/seoul-logo.png",
+    "https://cdn.example.com/races/seoul-logo.png ",
+    "https://cdn.example.com/races/seoul\n-logo.png",
+    "https://cdn.example.com/races/seoul\t-logo.png",
+    "https://cdn.example.com/races/seoul\u0000-logo.png",
+    "https://cdn.example.com/races/seoul\u007f-logo.png",
+    "https://CDN.EXAMPLE.com/races/seoul-logo.png",
+    "https://./races/seoul-logo.png",
+    "https://../races/seoul-logo.png",
+    "https://race..example.com/races/seoul-logo.png",
+  ])("rejects a non-canonical logoUrl: %s", (logoUrl) => {
+    // Given / When
+    const result = RaceSchema.safeParse({ ...validRace, logoUrl });
+
+    // Then
+    expect(result.success).toBe(false);
+  });
+
+  it("allows logoUrl to be absent", () => {
+    // Given / When
+    const result = RaceSchema.safeParse(validRace);
+
+    // Then
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data).not.toHaveProperty("logoUrl");
+    }
+  });
+
+  it.each([
+    "http://cdn.example.com/races/seoul-logo.png",
+    "data:image/png;base64,AAAA",
+    "https://organizer:secret@cdn.example.com/races/seoul-logo.png",
+    "https://localhost/races/seoul-logo.png",
+    "https://10.0.0.1/races/seoul-logo.png",
+    "https://cdn.example.com/favicon.ico",
+  ])("rejects an unsafe logoUrl: %s", (logoUrl) => {
+    // Given / When
+    const result = RaceSchema.safeParse({ ...validRace, logoUrl });
+
+    // Then
+    expect(result.success).toBe(false);
   });
 
   it.each(["https://race.example.com/event", "http://race.example.com/event"])(
@@ -168,17 +247,27 @@ describe("DiscoveredRaceLink", () => {
       generatedAt: "2025-01-15T12:00:00.000Z",
       registrationStatus: "open",
     });
+    const officialUrl = discoveredOfficialHomepageUrl("https://race.example.com");
+    expect(officialUrl).not.toBeNull();
+    if (officialUrl === null) return;
     const link = {
-      dedupKey: dedupKey(associatedRace),
+      dedupKey: transientIdentityHint(dedupKey(associatedRace)),
       kind: "official-site",
-      url: "https://race.example.com",
-      sourceId: "gorunning",
-      sourcePageUrl: "https://gorunning.kr/races/1001",
+      url: officialUrl,
+      sourceId: sourceId("gorunning"),
+      sourceDetailUrl: sourceDetailUrl("https://gorunning.kr/races/1001"),
+      identityEvidence: {
+        titleHints: [transientIdentityHint(associatedRace.name)],
+        dateHints: [transientIdentityHint(associatedRace.eventDate)],
+        organizerHints: [],
+      },
       evidence: "explicit-label",
     } satisfies DiscoveredRaceLink;
-    const racesByDedupKey = new Map([[dedupKey(associatedRace), associatedRace]]);
+    const racesByDedupKey = new Map([
+      [transientIdentityHint(dedupKey(associatedRace)), associatedRace],
+    ]);
 
-    expect(link.dedupKey).toBe(dedupKey(associatedRace));
+    expect(link.dedupKey).toBe(transientIdentityHint(dedupKey(associatedRace)));
     expect(racesByDedupKey.get(link.dedupKey)).toBe(associatedRace);
   });
 });
@@ -208,6 +297,38 @@ describe("SourceRecordSchema", () => {
 });
 
 describe("CollectionOutputSchema", () => {
+  it("retains logoUrl while removing collection-only urlScheme from public output", () => {
+    // Given
+    const logoUrl = "https://cdn.example.com/races/public-race-logo.png";
+    const race = RaceSchema.parse({
+      name: "Public Race",
+      eventDate: "2026-09-20",
+      registrationDeadline: null,
+      venue: "Seoul",
+      courses: [],
+      applicationUrl: "https://example.com/public-race",
+      logoUrl,
+      urlScheme: "https://identity.example/public-race",
+      sources: ["test"],
+      verified: false,
+      lastVerified: null,
+      updatedAt: "2026-01-02T03:04:05.000Z",
+      generatedAt: "2026-01-02T03:04:05.000Z",
+      registrationStatus: "unknown",
+    });
+
+    // When
+    const result = CollectionOutputSchema.parse({
+      generatedAt: "2026-01-02T03:04:05.000Z",
+      races: [race],
+      collectionMetadata: [],
+    });
+
+    // Then
+    expect(result.races[0]?.logoUrl).toBe(logoUrl);
+    expect(result.races[0]).not.toHaveProperty("urlScheme");
+  });
+
   it("validates a complete output", () => {
     const result = CollectionOutputSchema.safeParse({
       generatedAt: "2025-01-15T12:00:00.000Z",
@@ -219,6 +340,7 @@ describe("CollectionOutputSchema", () => {
 
   it("validates with races and metadata", () => {
     const officialSiteUrl = "https://race.example.com/event";
+    const logoUrl = "https://cdn.example.com/races/test-race-logo.png";
     const result = CollectionOutputSchema.safeParse({
       generatedAt: "2025-01-15T12:00:00.000Z",
       races: [
@@ -228,8 +350,9 @@ describe("CollectionOutputSchema", () => {
           registrationDeadline: null,
           venue: "Seoul",
           courses: [{ name: "10K", price: 50000 }],
-          applicationUrl: "https://example.com",
+          applicationUrl: "https://example.com/event",
           officialSiteUrl,
+          logoUrl,
           sources: ["test"],
           verified: false,
           lastVerified: null,
@@ -251,6 +374,7 @@ describe("CollectionOutputSchema", () => {
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.races[0]?.officialSiteUrl).toBe(officialSiteUrl);
+      expect(result.data.races[0]?.logoUrl).toBe(logoUrl);
     }
   });
 });
