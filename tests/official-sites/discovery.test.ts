@@ -23,14 +23,15 @@ function makeRace(overrides: Partial<Race> = {}): Race {
   };
 }
 function discover(html: string, race: Race = makeRace()) {
+  const sourceDetailUrl = "https://www.gorunning.co.kr/race/view.php?idx=1001";
   return discoverRaceLinks({
     race,
     sourceId: "gorunning",
-    sourcePageUrl: "https://www.gorunning.co.kr/race/view.php?idx=1001",
+    sourcePageUrl: sourceDetailUrl,
     sourceHosts: ["www.gorunning.co.kr"],
     aggregatorHosts: ["gorunning.co.kr", "www.gorunning.co.kr"],
     html,
-    raceDetailContext: { present: true },
+    raceDetailContext: { present: true, sourceDetailUrl },
   });
 }
 describe("discoverRaceLinks", () => {
@@ -59,14 +60,14 @@ describe("discoverRaceLinks", () => {
     const links = discover(html);
     // Then the Event URL is official with structured-event evidence
     expect(links).toEqual([
-      {
+      expect.objectContaining({
         dedupKey: dedupKey(makeRace()),
         kind: "official-site",
         url: "https://event.example.com/race?eventId=abc",
         sourceId: "gorunning",
-        sourcePageUrl: "https://www.gorunning.co.kr/race/view.php?idx=1001",
+        sourceDetailUrl: "https://www.gorunning.co.kr/race/view.php?idx=1001",
         evidence: "structured-event",
-      },
+      }),
     ]);
   });
   it("classifies structured organizer URLs as official-site candidates", () => {
@@ -86,18 +87,17 @@ describe("discoverRaceLinks", () => {
       ],
     ]);
   });
-  it("classifies Korean application labels as application only", () => {
+  it("treats Korean application labels as negative evidence only", () => {
     // Given registration labels including 신청하기
     const html = `<a href="https://apply.example.com/register">참가신청</a>
       <a href="https://apply.example.com/open">접수</a>
       <a href="https://apply.example.com/start">신청하기</a>`;
     // When links are discovered
     const links = discover(html);
-    // Then they are applications and never official sites
-    expect(links.map((link) => link.kind)).toEqual(["application", "application", "application"]);
-    expect(links.some((link) => link.kind === "official-site")).toBe(false);
+    // Then source-detail application links are not retained for publication or fetching
+    expect(links).toEqual([]);
   });
-  it("classifies registration destinations across structured and explicit evidence", () => {
+  it("rejects registration destinations across structured and explicit evidence", () => {
     const html = `<a href="https://official.example.com/Register.php?utm_source=x&race=1">공식 홈페이지</a>
       <script type="application/ld+json">{
         "@type":"Event",
@@ -105,15 +105,7 @@ describe("discoverRaceLinks", () => {
         "organizer":{"@type":"Organization","url":"https://organizer.example.com/%41PPLICATION.aspx?fbclid=x&org=1"}
       }</script>`;
     const links = discover(html);
-    expect(links.map((link) => [link.kind, link.evidence, link.url])).toEqual([
-      ["application", "explicit-label", "https://official.example.com/Register.php?race=1"],
-      ["application", "structured-event", "https://event.example.com/Registration.html?id=7"],
-      [
-        "application",
-        "structured-organizer",
-        "https://organizer.example.com/%41PPLICATION.aspx?org=1",
-      ],
-    ]);
+    expect(links).toEqual([]);
   });
   it("rejects payment registration destinations and keeps benign homepage destinations official", () => {
     const payment = discover(`<a href="https://payments.example/register">공식 홈페이지</a>
@@ -131,7 +123,7 @@ describe("discoverRaceLinks", () => {
       ["official-site", "structured-organizer", "https://official.example.com/application-guide"],
     ]);
   });
-  it("deduplicates the same canonical registration URL as one application candidate", () => {
+  it("drops duplicate registration URLs as negative evidence", () => {
     const html = `<a href="https://apply.example.com/register?utm_source=x&id=1#top">공식 홈페이지</a>
       <script type="application/ld+json">{
         "@type":"Event",
@@ -139,9 +131,7 @@ describe("discoverRaceLinks", () => {
         "organizer":{"url":"https://apply.example.com/register?id=1&utm_medium=y"}
       }</script>`;
     const links = discover(html);
-    expect(links.map((link) => [link.kind, link.evidence, link.url])).toEqual([
-      ["application", "explicit-label", "https://apply.example.com/register?id=1"],
-    ]);
+    expect(links).toEqual([]);
   });
   it("resolves relative URLs and canonicalizes only tracking noise", () => {
     // Given a relative application link and official link with tracking and event IDs
@@ -149,9 +139,8 @@ describe("discoverRaceLinks", () => {
       <a href="https://official.example.com/path?utm_source=x&gclid=y&id=1001&event=2025#frag">공식 홈페이지</a>`;
     // When links are discovered
     const links = discover(html);
-    // Then relative URLs resolve and event query identifiers are preserved
+    // Then application links are dropped and official event query identifiers are preserved
     expect(links.map((link) => link.url)).toEqual([
-      "https://www.gorunning.co.kr/apply?idx=1001&eventId=abc",
       "https://official.example.com/path?id=1001&event=2025",
     ]);
   });
@@ -192,10 +181,9 @@ describe("discoverRaceLinks", () => {
     const html = readFileSync("tests/fixtures/official-sites/discovery-positive.html", "utf8");
     // When discovery runs end-to-end
     const links = discover(html);
-    // Then explicit, application, Event, and organizer links are classified conservatively
+    // Then explicit, Event, and organizer links are classified conservatively
     expect(links.map((link) => [link.kind, link.evidence, link.url])).toEqual([
       ["official-site", "explicit-label", "https://official.example.com/event?eventId=1001"],
-      ["application", "explicit-label", "https://www.gorunning.co.kr/race/view.php?idx=1001"],
       ["official-site", "structured-event", "https://event.example.org/home?id=seoul-2025"],
       [
         "official-site",
@@ -204,15 +192,13 @@ describe("discoverRaceLinks", () => {
       ],
     ]);
   });
-  it("keeps 신청하기 from the existing GoRunning detail fixture as application only", () => {
+  it("drops 신청하기 from the existing GoRunning detail fixture", () => {
     // Given the existing GoRunning detail fixture that has only 신청하기
     const fixture = detailFixtureName("/race/view.php?idx=1001", "https://gorunning.kr");
     const html = readFileSync(`tests/fixtures/gorunning/${fixture}`, "utf8");
     // When discovery runs on the detail fixture
     const links = discover(html);
-    // Then the 신청하기 link is not promoted to official-site
-    expect(links.map((link) => [link.kind, link.url])).toEqual([
-      ["application", "https://www.gorunning.co.kr/race/view.php?idx=1001"],
-    ]);
+    // Then the 신청하기 link is not retained as a candidate
+    expect(links).toEqual([]);
   });
 });

@@ -1,8 +1,18 @@
-import type { DiscoveredRaceLink } from "../adapters/types.js";
+import {
+  type DiscoveredRaceLink,
+  discoveredOfficialHomepageUrl,
+  sourceDetailUrl,
+  sourceId,
+  transientIdentityHint,
+} from "../adapters/types.js";
 import type { Race } from "../contract.js";
 import { dedupKey } from "../normalize.js";
-import { isRegistrationDestination } from "./application-url-policy.js";
-import { type RaceDetailContext, canonicalUrl, isAllowedUrl } from "./discovery-url-policy.js";
+import {
+  type RaceDetailContext,
+  canonicalUrl,
+  hasOwnedSourceDetailContext,
+  isAllowedUrl,
+} from "./discovery-url-policy.js";
 import { scanHtmlAnchors } from "./html-anchors.js";
 import { isJsonLdEventType, parseJsonLdDocuments } from "./jsonld-events.js";
 
@@ -26,22 +36,35 @@ interface RawCandidate {
 }
 
 export function discoverRaceLinks(input: DiscoverRaceLinksInput): readonly DiscoveredRaceLink[] {
-  if (!input.raceDetailContext.present) return [];
-  const raceKey = dedupKey(input.race);
+  if (!hasOwnedSourceDetailContext(input)) return [];
+  const raceKey = transientIdentityHint(dedupKey(input.race));
+  const ownedDetailUrl = input.raceDetailContext.sourceDetailUrl;
+  if (ownedDetailUrl === undefined) return [];
+  const parsedSourceDetailUrl = sourceDetailUrl(ownedDetailUrl);
+  const parsedSourceId = sourceId(input.sourceId);
+  const identityEvidence = {
+    titleHints: [transientIdentityHint(input.race.name)],
+    dateHints: [transientIdentityHint(input.race.eventDate)],
+    organizerHints: [],
+  };
   const raw = [...anchorCandidates(input.html), ...structuredCandidates(input.html)];
   const byUrl = new Map<string, DiscoveredRaceLink>();
 
   for (const candidate of raw) {
     const canonical = canonicalUrl(candidate.url, input.sourcePageUrl);
     if (canonical === undefined) continue;
-    const kind = isRegistrationDestination(canonical) ? "application" : candidate.kind;
+    const kind = candidate.kind;
+    if (kind !== "official-site") continue;
     if (!isAllowedUrl(canonical, kind, input)) continue;
+    const officialUrl = discoveredOfficialHomepageUrl(canonical);
+    if (officialUrl === null) continue;
     const link: DiscoveredRaceLink = {
       dedupKey: raceKey,
       kind,
-      url: canonical,
-      sourceId: input.sourceId,
-      sourcePageUrl: input.sourcePageUrl,
+      url: officialUrl,
+      sourceId: parsedSourceId,
+      sourceDetailUrl: parsedSourceDetailUrl,
+      identityEvidence,
       evidence: candidate.evidence,
     };
     const previous = byUrl.get(canonical);
