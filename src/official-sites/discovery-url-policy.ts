@@ -2,19 +2,21 @@ import type { DiscoveredRaceLink } from "../adapters/types.js";
 import {
   decodedPath,
   hasBlockedPrivateBasename,
-  safeApplicationUrl,
+  safeOfficialPageUrl,
 } from "./application-url-policy.js";
 
 type LinkKind = DiscoveredRaceLink["kind"];
 
 export interface RaceDetailContext {
   readonly present: boolean;
+  readonly sourceDetailUrl?: string;
 }
 
 export interface UrlPolicyInput {
   readonly sourcePageUrl: string;
   readonly sourceHosts: readonly string[];
   readonly aggregatorHosts: readonly string[];
+  readonly raceDetailContext: RaceDetailContext;
 }
 
 const TRACKING_PARAMS =
@@ -69,7 +71,8 @@ export function canonicalUrl(raw: string, base: string): string | undefined {
 }
 
 export function isAllowedUrl(urlText: string, kind: LinkKind, input: UrlPolicyInput): boolean {
-  if (safeApplicationUrl(urlText) === null) return false;
+  if (kind === "application") return false;
+  if (safeOfficialPageUrl(urlText) === null) return false;
   const url = new URL(urlText);
   const host = canonicalHostname(url.hostname);
   const path = decodedPath(url.pathname);
@@ -79,6 +82,19 @@ export function isAllowedUrl(urlText: string, kind: LinkKind, input: UrlPolicyIn
   if (BLOCKED_EXTENSIONS.some((extension) => path.endsWith(extension))) return false;
   if (kind === "official-site" && isSourceOrAggregatorHost(host, input)) return false;
   return true;
+}
+
+export function hasOwnedSourceDetailContext(input: UrlPolicyInput): boolean {
+  if (!input.raceDetailContext.present) return false;
+  const sourceDetailUrl = input.raceDetailContext.sourceDetailUrl;
+  if (sourceDetailUrl === undefined) return false;
+  const canonicalSourcePageUrl = canonicalUrl(input.sourcePageUrl, input.sourcePageUrl);
+  const canonicalSourceDetailUrl = canonicalUrl(sourceDetailUrl, input.sourcePageUrl);
+  return (
+    canonicalSourcePageUrl !== undefined &&
+    canonicalSourceDetailUrl !== undefined &&
+    canonicalSourcePageUrl === canonicalSourceDetailUrl
+  );
 }
 
 export function canonicalHostname(value: string): string | undefined {

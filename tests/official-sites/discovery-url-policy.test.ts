@@ -20,15 +20,17 @@ function makeRace(): Race {
   };
 }
 
-function discover(html: string, contextPresent = true) {
+const SOURCE_DETAIL_URL = "https://www.gorunning.co.kr/race/view.php?idx=1001";
+
+function discover(html: string) {
   return discoverRaceLinks({
     race: makeRace(),
     sourceId: "gorunning",
-    sourcePageUrl: "https://www.gorunning.co.kr/race/view.php?idx=1001",
+    sourcePageUrl: SOURCE_DETAIL_URL,
     sourceHosts: ["www.gorunning.co.kr", "서울.example"],
     aggregatorHosts: ["gorunning.co.kr", "마라톤.example"],
     html,
-    raceDetailContext: { present: contextPresent },
+    raceDetailContext: { present: true, sourceDetailUrl: SOURCE_DETAIL_URL },
   });
 }
 
@@ -56,10 +58,51 @@ describe("discovery URL policy", () => {
     "https://apply.example/register",
     "http://apply.example/register",
     "https://payments-marathon.example/register",
-  ])("emits a public HTTP(S) explicit application URL: %s", (applicationUrl) => {
-    expect(discover(`<a href="${applicationUrl}">참가신청</a>`)).toEqual([
-      expect.objectContaining({ kind: "application", url: applicationUrl }),
+  ])("treats source-detail application URL as negative evidence only: %s", (applicationUrl) => {
+    expect(discover(`<a href="${applicationUrl}">참가신청</a>`)).toEqual([]);
+  });
+
+  it("accepts explicit and structured official homepage links only from owned source detail HTML", () => {
+    const html = `<a href="https://official.example.com/home?utm_source=x&id=1001#top">공식 홈페이지</a>
+      <script type="application/ld+json">{
+        "@type":"Event",
+        "url":"https://event.example.com/race?utm_campaign=x&eventId=abc",
+        "organizer":{"@type":"Organization","url":"https://organizer.example.com/home?fbclid=x&race=1"}
+      }</script>`;
+
+    expect(discover(html).map((link) => [link.kind, link.evidence, link.url])).toEqual([
+      ["official-site", "explicit-label", "https://official.example.com/home?id=1001"],
+      ["official-site", "structured-event", "https://event.example.com/race?eventId=abc"],
+      ["official-site", "structured-organizer", "https://organizer.example.com/home?race=1"],
     ]);
+  });
+
+  it("rejects official homepage labels in source list HTML even when the list row names one race", () => {
+    const links = discoverRaceLinks({
+      race: makeRace(),
+      sourceId: "gorunning",
+      sourcePageUrl: "https://www.gorunning.co.kr/races/",
+      sourceHosts: ["www.gorunning.co.kr"],
+      aggregatorHosts: ["gorunning.co.kr"],
+      html: `<article><h2>제25회 서울국제마라톤</h2><a href="https://official.example.com/home">공식 홈페이지</a></article>`,
+      raceDetailContext: { present: false },
+    });
+
+    expect(links).toEqual([]);
+  });
+
+  it("fails closed when detail discovery lacks the owned source detail URL", () => {
+    const links = discoverRaceLinks({
+      race: makeRace(),
+      sourceId: "gorunning",
+      sourcePageUrl: SOURCE_DETAIL_URL,
+      sourceHosts: ["www.gorunning.co.kr"],
+      aggregatorHosts: ["gorunning.co.kr"],
+      html: `<a href="https://official.example.com/home">공식 홈페이지</a>`,
+      raceDetailContext: { present: true },
+    });
+
+    expect(links).toEqual([]);
   });
 
   it("rejects generic nav, social/share, CDN, admin/member, payment, file, self, and unlabeled links", () => {

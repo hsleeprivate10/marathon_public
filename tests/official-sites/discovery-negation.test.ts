@@ -21,14 +21,15 @@ function makeRace(): Race {
 }
 
 function discover(html: string) {
+  const sourceDetailUrl = "https://www.gorunning.co.kr/race/view.php?idx=1001";
   return discoverRaceLinks({
     race: makeRace(),
     sourceId: "gorunning",
-    sourcePageUrl: "https://www.gorunning.co.kr/race/view.php?idx=1001",
+    sourcePageUrl: sourceDetailUrl,
     sourceHosts: ["www.gorunning.co.kr"],
     aggregatorHosts: ["gorunning.co.kr", "www.gorunning.co.kr"],
     html,
-    raceDetailContext: { present: true },
+    raceDetailContext: { present: true, sourceDetailUrl },
   });
 }
 
@@ -78,7 +79,6 @@ describe("homepage label negation", () => {
       ["official-site", "https://official.example/four"],
       ["official-site", "https://official.example/five"],
       ["official-site", "https://official.example/six"],
-      ["application", "https://apply.example/register"],
     ]);
   });
 });
