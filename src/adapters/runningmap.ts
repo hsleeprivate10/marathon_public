@@ -4,8 +4,8 @@
  * RunningMap (runningmap.com) provides route/map data alongside race info.
  * Extracts race names and dates from public listings.
  */
-import type { Race } from "../contract.js";
-import { computeRegistrationStatus } from "../contract.js";
+import { type Race, computeRegistrationStatus } from "../contract.js";
+import { KNOWN_AGGREGATOR_HOSTS } from "../official-sites/application-url-policy.js";
 import { discoverRaceLinks } from "../official-sites/discovery.js";
 import { detailFixtureName, safeRunningMapDetailUrl } from "./detail-source-url.js";
 import {
@@ -13,42 +13,20 @@ import {
   type CollectConfig,
   type DiscoveredRaceLink,
   type SourceAdapter,
+  type SourceDiscoveryCandidate,
   failedMetadata,
   fetchWithTimeout,
   readFixture,
+  sourceDetailUrl,
+  sourceId,
+  sourceResultUrl,
   successMetadata,
+  transientIdentityHint,
 } from "./types.js";
 
 const BASE_URL = "https://runningmap.kr";
-const KNOWN_SOURCE_HOSTS = [
-  "gorunning.kr",
-  "www.gorunning.kr",
-  "gorunning.co.kr",
-  "www.gorunning.co.kr",
-  "kormarathon.com",
-  "www.kormarathon.com",
-  "emarathon.or.kr",
-  "www.emarathon.or.kr",
-  "e-marathon.co.kr",
-  "www.e-marathon.co.kr",
-  "runningmap.kr",
-  "www.runningmap.kr",
-  "runningmap.com",
-  "www.runningmap.com",
-  "maedal.com",
-  "www.maedal.com",
-  "m.kaaf.or.kr",
-  "kaaf.or.kr",
-  "www.kaaf.or.kr",
-  "marathon.me.kr",
-  "www.marathon.me.kr",
-  "marathonmoa.com",
-  "www.marathonmoa.com",
-  "marathonmate.store",
-  "www.marathonmate.store",
-] as const;
-const SOURCE_HOSTS = KNOWN_SOURCE_HOSTS;
-const AGGREGATOR_HOSTS = KNOWN_SOURCE_HOSTS;
+const SOURCE_HOSTS = ["runningmap.kr", "runningmap.com"] as const;
+const AGGREGATOR_HOSTS = KNOWN_AGGREGATOR_HOSTS;
 function ownedDetailUrl(rawHref: string): string | null {
   return safeRunningMapDetailUrl(rawHref);
 }
@@ -56,16 +34,19 @@ function ownedDetailUrl(rawHref: string): string | null {
 function discoverDetailLinks(
   race: Race,
   detailHtml: string,
-  sourcePageUrl: string,
+  detailUrl: string,
 ): readonly DiscoveredRaceLink[] {
   return discoverRaceLinks({
     race,
     sourceId: "runningmap",
-    sourcePageUrl,
+    sourcePageUrl: detailUrl,
     sourceHosts: SOURCE_HOSTS,
     aggregatorHosts: AGGREGATOR_HOSTS,
     html: detailHtml,
-    raceDetailContext: { present: true },
+    raceDetailContext: { present: true, sourceDetailUrl: detailUrl },
+  }).filter((link) => {
+    const hostname = new URL(link.url).hostname;
+    return !SOURCE_HOSTS.some((host) => hostname === host || hostname.endsWith(`.${host}`));
   });
 }
 
@@ -143,6 +124,31 @@ function parseRunningMapHtml(html: string): ReadonlyArray<ParsedRace> {
   return races;
 }
 
+function identityEvidence(parsed: ParsedRace): SourceDiscoveryCandidate["identityEvidence"] {
+  return {
+    titleHints: [transientIdentityHint(parsed.name)],
+    dateHints: [transientIdentityHint(parsed.eventDate)],
+    organizerHints: [],
+  };
+}
+
+function transientRace(parsed: ParsedRace, detailUrl: string, now: string, id: string): Race {
+  return {
+    name: parsed.name,
+    eventDate: parsed.eventDate,
+    registrationDeadline: null,
+    venue: parsed.venue,
+    courses: [],
+    applicationUrl: detailUrl,
+    sources: [id],
+    verified: false,
+    lastVerified: null,
+    updatedAt: now,
+    generatedAt: now,
+    registrationStatus: computeRegistrationStatus(null, parsed.eventDate),
+  };
+}
+
 export const RunningMapAdapter: SourceAdapter = {
   id: "runningmap",
   name: "RunningMap",
@@ -161,64 +167,82 @@ export const RunningMapAdapter: SourceAdapter = {
 
       const parsed = parseRunningMapHtml(homeHtml);
       const now = new Date().toISOString();
-      const races: Race[] = [];
-      const discoveredLinks: DiscoveredRaceLink[] = [];
+      const discoveryCandidates: SourceDiscoveryCandidate[] = [];
+      const discoveredOfficialCandidates: DiscoveredRaceLink[] = [];
+      let sourceDetailsFetched = 0;
+      let rejectedCandidates = 0;
+      let budgetSkipped = 0;
       let remainingDetailBudget = config.detailBudget ?? 20;
 
       for (const p of parsed) {
-        const race: Race = {
-          name: p.name,
-          eventDate: p.eventDate,
-          registrationDeadline: null,
-          venue: p.venue,
-          courses: [],
-          applicationUrl: p.detailUrl ?? BASE_URL,
-          notes: "RunningMap: supplementary source",
-          sources: [id],
-          verified: false,
-          lastVerified: null,
-          updatedAt: now,
-          generatedAt: now,
-          registrationStatus: computeRegistrationStatus(null, p.eventDate),
-        };
-        let links: readonly DiscoveredRaceLink[] = [];
-        if (remainingDetailBudget > 0 && p.detailUrl !== null) {
-          remainingDetailBudget -= 1;
-          try {
-            const detailHtml = config.fixtureDir
-              ? await readFixture(config.fixtureDir, detailFixtureName(p.detailUrl, BASE_URL))
-              : await fetchWithTimeout(p.detailUrl);
-            links = discoverDetailLinks(race, detailHtml, p.detailUrl);
-          } catch (error) {
-            if (!(error instanceof Error)) throw error;
-          }
+        if (p.detailUrl === null) {
+          rejectedCandidates += 1;
+          continue;
         }
-        const registrationLink =
-          links.find((link) => link.kind === "application") ??
-          links.find((link) => link.kind === "official-site");
-        races.push(
-          registrationLink === undefined ? race : { ...race, applicationUrl: registrationLink.url },
+        const evidence = identityEvidence(p);
+        discoveryCandidates.push({
+          sourceId: sourceId(id),
+          sourceResultUrl: sourceResultUrl(`${BASE_URL}/list`),
+          sourceDetailUrl: sourceDetailUrl(p.detailUrl),
+          identityEvidence: evidence,
+        });
+        if (remainingDetailBudget <= 0) {
+          budgetSkipped += 1;
+          continue;
+        }
+        remainingDetailBudget -= 1;
+
+        let detailHtml: string;
+        try {
+          detailHtml = config.fixtureDir
+            ? await readFixture(config.fixtureDir, detailFixtureName(p.detailUrl, BASE_URL))
+            : await fetchWithTimeout(p.detailUrl);
+        } catch (error) {
+          if (!(error instanceof Error)) throw error;
+          rejectedCandidates += 1;
+          continue;
+        }
+        sourceDetailsFetched += 1;
+        const links = discoverDetailLinks(
+          transientRace(p, p.detailUrl, now, id),
+          detailHtml,
+          p.detailUrl,
         );
-        discoveredLinks.push(...links);
+        if (links.length === 0) rejectedCandidates += 1;
+        discoveredOfficialCandidates.push(...links);
       }
 
       return {
-        races,
-        discoveredLinks,
+        discoveryCandidates,
+        discoveredOfficialCandidates,
         metadata: successMetadata(
           id,
-          races.length,
-          races.length > 0
-            ? `Collected ${races.length} races from RunningMap`
-            : "No races found in RunningMap homepage",
+          discoveryCandidates.length,
+          discoveryCandidates.length > 0
+            ? `Collected ${discoveryCandidates.length} RunningMap source-detail candidates`
+            : "No safe RunningMap source-detail candidates found in homepage",
         ),
+        stageCounters: {
+          discoveryCandidates: discoveryCandidates.length,
+          sourceDetailsFetched,
+          discoveredOfficialCandidates: discoveredOfficialCandidates.length,
+          rejectedCandidates,
+          budgetSkipped,
+        },
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return {
-        races: [],
-        discoveredLinks: [],
+        discoveryCandidates: [],
+        discoveredOfficialCandidates: [],
         metadata: failedMetadata(id, true, `RunningMap failed: ${message}`),
+        stageCounters: {
+          discoveryCandidates: 0,
+          sourceDetailsFetched: 0,
+          discoveredOfficialCandidates: 0,
+          rejectedCandidates: 0,
+          budgetSkipped: 0,
+        },
       };
     }
   },
