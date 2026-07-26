@@ -5,6 +5,7 @@ node_modules/
 dist/
 .tmp/
 .omo/
+.omx/
 qa-*.png
 
 # Generated data (produced by `bun run collect`)
