@@ -1,6 +1,7 @@
 import type { Course } from "../contract.js";
 import { isValidIsoDate } from "../contract.js";
 import { canonicalCourses } from "../courses.js";
+import { type RaceLogoCandidate, parseRaceLogoCandidates } from "../race-logo-candidates.js";
 import { safeApplicationUrl } from "./application-url-policy.js";
 import { scanHtmlAnchors } from "./html-anchors.js";
 import { type OfficialJsonLdEvent, parseJsonLdEvents } from "./jsonld-events.js";
@@ -13,6 +14,7 @@ export type OfficialPageData = {
   readonly registrationDeadline: string | null;
   readonly courses: readonly Course[];
   readonly registrationUrl: string | null;
+  readonly logoCandidates?: readonly RaceLogoCandidate[];
   readonly events?: readonly OfficialJsonLdEvent[];
   readonly bodyNames?: readonly string[];
   readonly bodyEventDates?: readonly string[];
@@ -57,6 +59,7 @@ export function parseOfficialPage(html: string, pageUrl: string): OfficialPageDa
     registrationDeadline: firstEvent?.registrationDeadline ?? bodyDeadline,
     courses: mergeCourses(firstEvent?.courses ?? [], bodyCourses),
     registrationUrl: firstEvent?.registrationUrl ?? bodyRegistrationUrl,
+    logoCandidates: parseRaceLogoCandidates(html, pageUrl),
     events,
     bodyNames,
     bodyEventDates,

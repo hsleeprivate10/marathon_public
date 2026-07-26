@@ -21,6 +21,24 @@ const identityRace: Race = {
 };
 
 describe("parseOfficialPage JSON-LD", () => {
+  it("retains matching event logo candidates without changing official Event fields", () => {
+    const parsed = parseOfficialPage(
+      fixture("matching-event-logo.html"),
+      "https://official.example/seoul-2026-logo",
+    );
+
+    expect(parsed.logoCandidates).toEqual([
+      {
+        url: "https://official.example/media/seoul-event-logo.png",
+        kind: "logo",
+        eventDate: "2026-03-15",
+        identity: "2026 서울국제마라톤",
+        aggregatorEvidence: "2026 서울국제마라톤",
+      },
+    ]);
+    expect(parsed.eventDate).toBe("2026-03-15");
+  });
+
   it("prefers Event JSON-LD and explicit Korean labels for official fields", () => {
     const parsed = parseOfficialPage(
       fixture("matching-event.html"),

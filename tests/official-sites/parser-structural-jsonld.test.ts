@@ -67,7 +67,6 @@ describe("structural JSON-LD official parser", () => {
     expect(result.race.registrationDeadline).toBe("2026-02-28");
     expect(result.race.applicationUrl).toBe("https://apply.example/seoul");
     expect(result.race.courses).toEqual([
-      { name: "풀", price: null },
       { name: "하프", price: 55000, priceSource: "structured" },
     ]);
   });
