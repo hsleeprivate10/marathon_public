@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { safeGoRunningDetailUrl } from "../src/adapters/detail-source-url.js";
+import {
+  safeEMarathonDetailUrl,
+  safeGoRunningDetailUrl,
+  safeRunningMapDetailUrl,
+} from "../src/adapters/detail-source-url.js";
 import type { Race } from "../src/contract.js";
 import { raceHref } from "../src/race-link.js";
 
@@ -40,5 +44,21 @@ describe("GoRunning detail URL policy", () => {
 
   it("still rejects nested sensitive routes", () => {
     expect(safeGoRunningDetailUrl("/races/1169/admin/")).toBeNull();
+  });
+});
+
+describe("live aggregator detail URL policy", () => {
+  it("accepts the current e-Marathon board detail route", () => {
+    expect(
+      safeEMarathonDetailUrl(
+        "https://emarathon.or.kr/bbs/board.php?bo_table=emara04_01&wr_id=1594",
+      ),
+    ).toBe("https://emarathon.or.kr/bbs/board.php?bo_table=emara04_01&wr_id=1594");
+  });
+
+  it("accepts a current RunningMap race detail route with a Korean slug", () => {
+    expect(safeRunningMapDetailUrl("/race/2026-서울신문-마라톤-2026-05-16")).toBe(
+      "https://runningmap.kr/race/2026-%EC%84%9C%EC%9A%B8%EC%8B%A0%EB%AC%B8-%EB%A7%88%EB%9D%BC%ED%86%A4-2026-05-16",
+    );
   });
 });
