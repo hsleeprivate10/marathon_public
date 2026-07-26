@@ -33,9 +33,32 @@ const KOR_MARATHON_ROUTES = [
 ] as const;
 const E_MARATHON_ROUTES = [
   { pathPrefix: "/race/view/", identifierPattern: /^[A-Za-z0-9][A-Za-z0-9_-]*$/ },
+  {
+    pathPrefix: "/bbs/board.php",
+    exactPath: "/bbs/board.php",
+    identifierPattern: /^$/,
+    searchPattern: /^\?bo_table=emara04_01&wr_id=\d+$/,
+  },
 ] as const;
 const RUNNING_MAP_ROUTES = [
-  { pathPrefix: "/race/", identifierPattern: /^(?:view\/)?[A-Za-z0-9][A-Za-z0-9_-]*$/ },
+  { pathPrefix: "/race/", identifierPattern: /^(?:view\/)?[\p{L}\p{N}][\p{L}\p{N}_-]*$/u },
+] as const;
+const MAEDAL_ROUTES = [
+  { pathPrefix: "/races/", identifierPattern: /^[A-Za-z0-9][A-Za-z0-9_-]*$/ },
+] as const;
+const KAAF_ROUTES = [
+  {
+    pathPrefix: "/mobile/info/inside_view.asp",
+    exactPath: "/mobile/info/inside_view.asp",
+    identifierPattern: /^$/,
+    searchPattern: /^\?no=\d+$/,
+  },
+] as const;
+const MARATHON_MOA_ROUTES = [
+  { pathPrefix: "/events/", identifierPattern: /^[0-9a-f]{8}-[0-9a-f-]{27}$/i },
+] as const;
+const MARATHON_MATE_ROUTES = [
+  { pathPrefix: "/race/", identifierPattern: /^[A-Za-z0-9][A-Za-z0-9_-]*$/ },
 ] as const;
 
 function decodeRecursively(value: string): string | null {
@@ -75,22 +98,22 @@ function normalizedSegments(pathname: string): readonly string[] {
   return pathname.split("/").filter((segment) => segment.length > 0);
 }
 
-function hasSensitiveNormalizedPath(url: URL): boolean {
-  const segments = normalizedSegments(url.pathname).map((segment) => segment.toLowerCase());
+function hasSensitiveNormalizedPath(pathname: string): boolean {
+  const segments = normalizedSegments(pathname).map((segment) => segment.toLowerCase());
   if (segments.some((segment) => SENSITIVE_SEGMENTS.has(segment))) return true;
   return segments.some((segment) => segment.endsWith(".pdf"));
 }
 
-function routeMatches(url: URL, route: DetailRoute): boolean {
-  if (route.exactPath !== undefined && url.pathname !== route.exactPath) return false;
+function routeMatches(url: URL, pathname: string, route: DetailRoute): boolean {
+  if (route.exactPath !== undefined && pathname !== route.exactPath) return false;
   if (route.searchPattern === undefined && url.search !== "") return false;
   if (route.searchPattern !== undefined && !route.searchPattern.test(url.search)) return false;
-  if (!url.pathname.startsWith(route.pathPrefix)) return false;
-  const identifier = url.pathname.slice(route.pathPrefix.length);
+  if (!pathname.startsWith(route.pathPrefix)) return false;
+  const identifier = pathname.slice(route.pathPrefix.length);
   return route.identifierPattern.test(identifier);
 }
 
-export function safeDetailUrl(rawRef: string, options: DetailOptions): string | null {
+export function safeSourceDetailUrl(rawRef: string, options: DetailOptions): string | null {
   if (hasUnsafeRawPath(rawRef)) return null;
   if (!URL.canParse(rawRef, options.baseUrl)) return null;
   const url = new URL(rawRef, options.baseUrl);
@@ -98,10 +121,21 @@ export function safeDetailUrl(rawRef: string, options: DetailOptions): string | 
   if (url.username !== "" || url.password !== "") return null;
   if (url.hash !== "") return null;
   if (url.origin !== base.origin) return null;
-  if (url.pathname.includes("%")) return null;
-  if (hasSensitiveNormalizedPath(url)) return null;
-  if (!options.routes.some((route) => routeMatches(url, route))) return null;
+  const pathname = decodeRecursively(url.pathname);
+  if (
+    pathname === null ||
+    hasControlCharacter(pathname) ||
+    pathname.includes("\\") ||
+    /%[0-9a-f]{2}/iu.test(pathname)
+  )
+    return null;
+  if (hasSensitiveNormalizedPath(pathname)) return null;
+  if (!options.routes.some((route) => routeMatches(url, pathname, route))) return null;
   return safeApplicationUrl(url.toString());
+}
+
+export function safeDetailUrl(rawRef: string, options: DetailOptions): string | null {
+  return safeSourceDetailUrl(rawRef, options);
 }
 
 export function detailFixtureName(sourceUrlOrPath: string, baseUrl: string): string {
@@ -127,4 +161,29 @@ export function safeEMarathonDetailUrl(rawRef: string): string | null {
 
 export function safeRunningMapDetailUrl(rawRef: string): string | null {
   return safeDetailUrl(rawRef, { baseUrl: "https://runningmap.kr", routes: RUNNING_MAP_ROUTES });
+}
+
+export function safeMaedalDetailUrl(rawRef: string): string | null {
+  return safeDetailUrl(rawRef, { baseUrl: "https://maedal.com", routes: MAEDAL_ROUTES });
+}
+
+export function safeKaafDetailUrl(rawRef: string): string | null {
+  return safeDetailUrl(rawRef, { baseUrl: "https://m.kaaf.or.kr", routes: KAAF_ROUTES });
+}
+
+export function safeMarathonMoaDetailUrl(rawRef: string): string | null {
+  return (
+    safeDetailUrl(rawRef, { baseUrl: "https://marathon.me.kr", routes: MARATHON_MOA_ROUTES }) ??
+    safeDetailUrl(rawRef, { baseUrl: "https://marathonmoa.com", routes: MARATHON_MOA_ROUTES })
+  );
+}
+
+export function safeMarathonMateDetailUrl(rawRef: string): string | null {
+  return (
+    safeDetailUrl(rawRef, {
+      baseUrl: "https://marathonmate.store",
+      routes: MARATHON_MATE_ROUTES,
+    }) ??
+    safeDetailUrl(rawRef, { baseUrl: "https://marathonmate.com", routes: MARATHON_MATE_ROUTES })
+  );
 }

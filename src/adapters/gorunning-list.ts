@@ -1,12 +1,7 @@
-import type { Course } from "../contract.js";
-import { canonicalCourses } from "../courses.js";
-
 export interface GoRunningListItem {
   readonly detailPath: string;
   readonly name: string;
   readonly eventDate: string;
-  readonly venue: string;
-  readonly courses: readonly Course[];
 }
 
 function text(html: string): string {
@@ -27,20 +22,10 @@ function parseRows(section: string, eventDate: string): GoRunningListItem[] {
     const rowHtml = row[1] ?? "";
     const link = rowHtml.match(/href="(\/races\/\d+\/[A-Za-z0-9_-]+\/?)"[^>]*>([\s\S]*?)<\/a>/i);
     if (link?.[1] === undefined || link[2] === undefined) continue;
-    const cells = [...rowHtml.matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/gi)].map((match) =>
-      text(match[1] ?? ""),
-    );
-    const rawCourses = [
-      ...(rowHtml.match(/<td\b[^>]*>([\s\S]*?)<\/td>/gi)?.[2] ?? "").matchAll(
-        /<span\b[^>]*>([^<]+)<\/span>/gi,
-      ),
-    ].map((match) => ({ name: match[1] ?? "", price: null }));
     races.push({
       detailPath: link[1],
       name: text(link[2]),
       eventDate,
-      venue: cells[4] || "미상",
-      courses: canonicalCourses(rawCourses),
     });
   }
   return races;
@@ -53,15 +38,10 @@ function parseLegacyRows(html: string): GoRunningListItem[] {
     const link = rowHtml.match(/href="(\/race\/view\.php\?idx=\d+)"[^>]*>([\s\S]*?)<\/a>/i);
     const date = rowHtml.match(/(\d{4}-\d{2}-\d{2})/i)?.[1];
     if (link?.[1] === undefined || link[2] === undefined || date === undefined) continue;
-    const cells = [...rowHtml.matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/gi)].map((match) =>
-      text(match[1] ?? ""),
-    );
     races.push({
       detailPath: link[1],
       name: text(link[2]),
       eventDate: date,
-      venue: cells[2] || "미상",
-      courses: [],
     });
   }
   return races;
@@ -94,7 +74,7 @@ export function parseGoRunningList(html: string): readonly GoRunningListItem[] {
     const detailPath = match[1];
     const name = text(match[2] ?? "");
     if (detailPath === undefined || name.length < 3) continue;
-    races.push({ detailPath, name, eventDate: "", venue: "미상", courses: [] });
+    races.push({ detailPath, name, eventDate: "" });
   }
   return races;
 }
