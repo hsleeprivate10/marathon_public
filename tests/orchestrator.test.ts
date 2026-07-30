@@ -342,38 +342,46 @@ describe("orchestrator", () => {
     expect(result.races[0]?.applicationUrl).not.toBe(sourceApplication);
   });
 
-  it("preserves the existing live file when no official pages are accepted", async () => {
+  it("writes empty output when no official pages are accepted", async () => {
+    // Given: an existing live file and a successful source adapter whose official page fetch fails.
     const publicDir = resolve(TMP_DIR, "public");
     await mkdir(publicDir, { recursive: true });
     await writeFile(resolve(publicDir, "races.json"), "live-sentinel", "utf-8");
     const officialUrl = "https://official.example/rejected";
 
-    await expect(
-      collect(
-        { projectRoot: TMP_DIR, fixtureBaseDir: undefined },
-        {
-          adapters: [
-            adapter({
-              id: "source",
-              name: "2026 거절 대회",
-              eventDate: "2026-07-01",
-              officialUrls: [officialUrl],
-            }),
-          ],
-          now: () => NOW,
-          fetchOfficialPage: vi.fn(async () => ({
-            kind: "failed" as const,
-            url: officialUrl,
-            reason: "network" as const,
-          })),
-          sleep: vi.fn(() => Promise.resolve()),
-          courtesyDelayMs: 0,
-        },
-      ),
-    ).rejects.toThrow(
-      "Live collection produced no publishable race data; existing output preserved",
+    // When: collection completes with no accepted official-site races.
+    const result = await collect(
+      { projectRoot: TMP_DIR, fixtureBaseDir: undefined },
+      {
+        adapters: [
+          adapter({
+            id: "source",
+            name: "2026 거절 대회",
+            eventDate: "2026-07-01",
+            officialUrls: [officialUrl],
+          }),
+        ],
+        now: () => NOW,
+        fetchOfficialPage: vi.fn(async () => ({
+          kind: "failed" as const,
+          url: officialUrl,
+          reason: "network" as const,
+        })),
+        sleep: vi.fn(() => Promise.resolve()),
+        courtesyDelayMs: 0,
+      },
     );
-    expect(await readFile(resolve(publicDir, "races.json"), "utf-8")).toBe("live-sentinel");
+    const published = JSON.parse(await readFile(resolve(publicDir, "races.json"), "utf-8"));
+
+    // Then: the sentinel is replaced by valid empty collection output with accepted=0 metadata.
+    expect(result.races).toEqual([]);
+    expect(CollectionOutputSchema.parse(published).races).toEqual([]);
+    expect(published).toEqual(result);
+    expect(result.collectionMetadata.at(-1)).toMatchObject({
+      id: "official-sites",
+      recordCount: 0,
+      message: expect.stringContaining("accepted=0"),
+    });
   });
 
   it("preserves the existing live file when every adapter fails", async () => {
@@ -398,20 +406,28 @@ describe("orchestrator", () => {
     expect(await readFile(resolve(publicDir, "races.json"), "utf-8")).toBe("live-sentinel");
   });
 
-  it("preserves the existing live file when successful adapters provide no official candidates", async () => {
+  it("writes empty output when successful adapters provide no official candidates", async () => {
+    // Given: an existing live file and a successful source adapter with zero official candidates.
     const publicDir = resolve(TMP_DIR, "public");
     await mkdir(publicDir, { recursive: true });
     await writeFile(resolve(publicDir, "races.json"), "live-sentinel", "utf-8");
 
-    await expect(
-      collect(
-        { projectRoot: TMP_DIR, fixtureBaseDir: undefined },
-        { adapters: [emptyAdapter("empty")], now: () => NOW },
-      ),
-    ).rejects.toThrow(
-      "Live collection produced no publishable race data; existing output preserved",
+    // When: collection completes without official-site candidates to materialize.
+    const result = await collect(
+      { projectRoot: TMP_DIR, fixtureBaseDir: undefined },
+      { adapters: [emptyAdapter("empty")], now: () => NOW },
     );
-    expect(await readFile(resolve(publicDir, "races.json"), "utf-8")).toBe("live-sentinel");
+    const published = JSON.parse(await readFile(resolve(publicDir, "races.json"), "utf-8"));
+
+    // Then: the sentinel is replaced by valid empty collection output with accepted=0 metadata.
+    expect(result.races).toEqual([]);
+    expect(CollectionOutputSchema.parse(published).races).toEqual([]);
+    expect(published).toEqual(result);
+    expect(result.collectionMetadata.at(-1)).toMatchObject({
+      id: "official-sites",
+      recordCount: 0,
+      message: expect.stringContaining("accepted=0"),
+    });
   });
 
   it("sorts materialized official races by eventDate after status refresh", async () => {

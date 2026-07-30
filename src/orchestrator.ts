@@ -4,7 +4,8 @@
  * validates, and writes races.json.
  *
  * All adapter failures are recorded in collectionMetadata but never break output.
- * Live runs preserve the existing output instead of writing an empty file.
+ * Live runs preserve existing output only when every source adapter fails.
+ * Successful source collection with zero accepted official races writes races: [].
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -163,7 +164,7 @@ export async function collect(
 
   if (options.fixtureBaseDir === undefined) {
     const sourceMetadata = metadata.filter((item) => item.id !== "official-sites");
-    if (!sourceMetadata.some((item) => item.succeeded) || sorted.length === 0) {
+    if (!sourceMetadata.some((item) => item.succeeded)) {
       throw new Error(
         "Live collection produced no publishable race data; existing output preserved",
       );
