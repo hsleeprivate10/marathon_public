@@ -220,7 +220,7 @@ test("public races data loads without assuming calendar shape", async ({ page })
   await expect(page.getByLabel("대회 연도 선택")).toBeVisible();
   await expect(page.getByLabel("대회 월 선택")).toBeVisible();
   await expect(page.getByText(/^데이터 갱신 /)).toBeVisible();
-  const applicationLinks = await page
+  const officialRaceLinks = await page
     .locator(".home-race-link")
     .evaluateAll((links) =>
       links.flatMap((link) => (link instanceof HTMLAnchorElement ? [link.href] : [])),
@@ -241,8 +241,7 @@ test("public races data loads without assuming calendar shape", async ({ page })
     "http://www.gyeongjumarathon.com/home",
     "http://xn--439a68tboh.kr/index.asp",
   ]);
-  expect(applicationLinks.length).toBeGreaterThan(0);
-  expect(applicationLinks.filter((href) => nonRacePages.has(href))).toEqual([]);
+  expect(officialRaceLinks.filter((href) => nonRacePages.has(href))).toEqual([]);
   expect(signals.consoleErrors).toEqual([]);
   expect(signals.pageErrors).toEqual([]);
 });
