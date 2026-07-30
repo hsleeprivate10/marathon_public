@@ -24,14 +24,55 @@ const baseRace: Race = {
 };
 
 describe("race card link selection", () => {
-  it("uses the registration URL even when an official site is available", () => {
+  it("returns the official site URL when present", () => {
+    // Given
     const race = { ...baseRace, officialSiteUrl: "https://official.example/race" };
 
-    expect(raceHref(race)).toBe("https://apply.example/race");
+    // When
+    const href = raceHref(race);
+
+    // Then
+    expect(href).toBe("https://official.example/race");
   });
 
-  it("falls back to the application URL when no official site is available", () => {
-    expect(raceHref(baseRace)).toBe("https://apply.example/race");
+  it("returns null when the official site URL is absent", () => {
+    // Given
+    const race = baseRace;
+
+    // When
+    const href = raceHref(race);
+
+    // Then
+    expect(href).toBeNull();
+  });
+
+  it("does not fall back to a GoRunning aggregator application URL", () => {
+    // Given
+    const race = {
+      ...baseRace,
+      applicationUrl: "https://gorunning.kr/races/1169/2026-kma-cheongju-free-marathon/",
+    };
+
+    // When
+    const href = raceHref(race);
+
+    // Then
+    expect(href).toBeNull();
+  });
+
+  it("prefers the official site URL over a GoRunning aggregator application URL", () => {
+    // Given
+    const race = {
+      ...baseRace,
+      applicationUrl: "https://gorunning.kr/races/1169/2026-kma-cheongju-free-marathon/",
+      officialSiteUrl: "https://official.example/race",
+    };
+
+    // When
+    const href = raceHref(race);
+
+    // Then
+    expect(href).toBe("https://official.example/race");
   });
 });
 

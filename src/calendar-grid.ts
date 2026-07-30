@@ -32,20 +32,27 @@ function formatStatus(status: Race["registrationStatus"]): string {
   return labels[status];
 }
 
-function renderRace(race: Race): HTMLAnchorElement {
-  const link = element("a", `race status-${escapeCss(race.registrationStatus)}`);
-  link.href = raceHref(race);
-  link.target = "_blank";
-  link.rel = "noopener noreferrer";
-  link.setAttribute(
-    "aria-label",
-    `${race.name}, ${race.eventDate}, ${race.venue}, ${formatStatus(race.registrationStatus)}`,
-  );
-  link.append(
+function renderRace(race: Race): HTMLElement {
+  const href = raceHref(race);
+  let card: HTMLElement;
+  if (href === null) {
+    card = element("span", `race status-${escapeCss(race.registrationStatus)}`);
+  } else {
+    const anchor = element("a", `race status-${escapeCss(race.registrationStatus)}`);
+    anchor.href = href;
+    anchor.target = "_blank";
+    anchor.rel = "noopener noreferrer";
+    anchor.setAttribute(
+      "aria-label",
+      `${race.name}, ${race.eventDate}, ${race.venue}, ${formatStatus(race.registrationStatus)}`,
+    );
+    card = anchor;
+  }
+  card.append(
     element("strong", undefined, race.name),
     element("span", undefined, `${race.venue} · ${formatStatus(race.registrationStatus)}`),
   );
-  return link;
+  return card;
 }
 
 export function renderGrid(year: number, month: number, monthRaces: readonly Race[]): HTMLElement {

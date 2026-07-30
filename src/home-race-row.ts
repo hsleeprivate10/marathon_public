@@ -23,15 +23,22 @@ function element<K extends keyof HTMLElementTagNameMap>(
 
 export function createRaceRow(race: Race): HTMLLIElement {
   const item = element("li", "home-race-row");
-  const link = element("a", "home-race-link");
+  const href = raceHref(race);
   const courseLabel = race.courses.map((course) => course.name).join(" · ") || "코스 미정";
-  link.href = raceHref(race);
-  link.target = "_blank";
-  link.rel = "noopener noreferrer";
-  link.setAttribute(
-    "aria-label",
-    `${race.name}, ${race.eventDate}, ${race.venue}, ${courseLabel}, ${statusLabels[race.registrationStatus]}, 신청 페이지 열기`,
-  );
+  let link: HTMLElement;
+  if (href === null) {
+    link = element("span", "home-race-link");
+  } else {
+    const anchor = element("a", "home-race-link");
+    anchor.href = href;
+    anchor.target = "_blank";
+    anchor.rel = "noopener noreferrer";
+    anchor.setAttribute(
+      "aria-label",
+      `${race.name}, ${race.eventDate}, ${race.venue}, ${courseLabel}, ${statusLabels[race.registrationStatus]}, 공식 홈페이지 열기`,
+    );
+    link = anchor;
+  }
 
   const details = element("span", "home-race-details");
   details.append(element("strong", "home-race-name", race.name));
@@ -46,8 +53,8 @@ export function createRaceRow(race: Race): HTMLLIElement {
     ),
   );
   details.append(metadata);
-  const action = element("span", "home-race-action", "신청 안내");
-  action.setAttribute("aria-hidden", "true");
+  const actionText = href === null ? "공식 홈페이지 확인 중" : "공식 홈페이지";
+  const action = element("span", "home-race-action", actionText);
   link.append(createRaceMedia(race), details, action);
 
   const favorite = element("button", "home-favorite");

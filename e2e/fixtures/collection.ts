@@ -29,6 +29,7 @@ function race(fixture: RaceFixture): Race {
     region: fixture.region,
     courses: [{ name: fixture.course, price: null }],
     applicationUrl: `https://example.com/calendar-race-${fixture.id}`,
+    officialSiteUrl: `https://official.example/calendar-race-${fixture.id}`,
     sources: ["e2e-fixture"],
     verified: true,
     lastVerified: generatedAt,
@@ -37,6 +38,14 @@ function race(fixture: RaceFixture): Race {
     registrationStatus: fixture.status,
   };
 }
+
+export const officialRaceLinkFixture = {
+  normalName: "현재 달 서울 마라톤",
+  normalApplicationUrl: "https://example.com/calendar-race-current",
+  normalOfficialSiteUrl: "https://official.example/calendar-race-current",
+  aggregatorName: "고러닝 발견 전용 대회",
+  aggregatorApplicationUrl: "https://gorunning.kr/races/aggregator-only-race",
+} as const;
 
 const fixtureRaces = [
   race({
@@ -107,6 +116,36 @@ export const emptyCollection: CollectionOutput = {
   generatedAt,
   races: [],
   collectionMetadata: [],
+};
+
+export const aggregatorOnlyCollection: CollectionOutput = {
+  generatedAt,
+  races: [
+    {
+      name: officialRaceLinkFixture.aggregatorName,
+      eventDate: isoDate(currentYear, currentMonth, 16),
+      registrationDeadline: null,
+      venue: "서울 시민운동장",
+      region: "서울",
+      courses: [{ name: "10K", price: null }],
+      applicationUrl: officialRaceLinkFixture.aggregatorApplicationUrl,
+      sources: ["gorunning"],
+      verified: true,
+      lastVerified: generatedAt,
+      updatedAt: generatedAt,
+      generatedAt,
+      registrationStatus: "open",
+    },
+  ],
+  collectionMetadata: [
+    {
+      id: "gorunning",
+      attempted: true,
+      succeeded: true,
+      recordCount: 1,
+      message: "deterministic aggregator-only browser fixture",
+    },
+  ],
 };
 
 export async function routeCollection(
