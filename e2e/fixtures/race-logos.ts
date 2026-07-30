@@ -12,6 +12,7 @@ type LogoRaceFixture = {
   readonly name: string;
   readonly eventDate: string;
   readonly applicationUrl: string;
+  readonly officialSiteUrl: string;
   readonly logoUrl?: string;
 };
 
@@ -24,6 +25,7 @@ function race(fixture: LogoRaceFixture): Race {
     region: "서울",
     courses: [{ name: "10K", price: null }],
     applicationUrl: fixture.applicationUrl,
+    officialSiteUrl: fixture.officialSiteUrl,
     sources: ["logo-e2e-fixture"],
     verified: true,
     lastVerified: generatedAt,
@@ -45,6 +47,11 @@ export const logoFixture = {
     "https://example.com/logo-missing",
     "https://example.com/logo-failure",
   ],
+  officialSiteUrls: [
+    "https://official.example/logo-success-home",
+    "https://official.example/logo-missing-home",
+    "https://official.example/logo-failure-home",
+  ],
 } as const;
 
 export type LogoRequestEvidence = {
@@ -59,17 +66,20 @@ const logoCollection: CollectionOutput = {
       name: logoFixture.successName,
       eventDate: "2026-08-10",
       applicationUrl: logoFixture.applicationUrls[0],
+      officialSiteUrl: logoFixture.officialSiteUrls[0],
       logoUrl: remoteLogoUrl,
     }),
     race({
       name: logoFixture.missingName,
       eventDate: "2026-08-11",
       applicationUrl: logoFixture.applicationUrls[1],
+      officialSiteUrl: logoFixture.officialSiteUrls[1],
     }),
     race({
       name: logoFixture.failureName,
       eventDate: "2026-08-12",
       applicationUrl: logoFixture.applicationUrls[2],
+      officialSiteUrl: logoFixture.officialSiteUrls[2],
       logoUrl: failedLogoUrl,
     }),
   ],

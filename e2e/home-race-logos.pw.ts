@@ -43,10 +43,10 @@ for (const colorScheme of colorSchemes) {
         .toEqual([true, true, true]);
 
       // Then each slot has one decorative, low-priority, intrinsic-size image with stable 4:3 geometry.
-      for (const [name, applicationUrl] of [
-        [logoFixture.successName, logoFixture.applicationUrls[0]],
-        [logoFixture.missingName, logoFixture.applicationUrls[1]],
-        [logoFixture.failureName, logoFixture.applicationUrls[2]],
+      for (const [name, officialSiteUrl] of [
+        [logoFixture.successName, logoFixture.officialSiteUrls[0]],
+        [logoFixture.missingName, logoFixture.officialSiteUrls[1]],
+        [logoFixture.failureName, logoFixture.officialSiteUrls[2]],
       ] as const) {
         const row = rows.filter({ hasText: name });
         const image = row.locator(".home-race-media > img");
@@ -57,7 +57,7 @@ for (const colorScheme of colorSchemes) {
         await expect(row.locator(".home-race-details")).toContainText(name);
         await expect(row.locator(":scope > .home-favorite")).toBeDisabled();
         await expect(row.locator(".home-race-link .home-favorite")).toHaveCount(0);
-        await expect(row.locator(".home-race-link")).toHaveAttribute("href", applicationUrl);
+        await expect(row.locator(".home-race-link")).toHaveAttribute("href", officialSiteUrl);
       }
 
       const successImage = rows
