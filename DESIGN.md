@@ -58,9 +58,9 @@ Content is constrained to 1200px. At 375px the calendar becomes an event-only li
 - Accessibility: every control has a visible label; filtering never relies on color.
 
 ### Calendar Cell and Event Card
-- Structure: date number, event links with status text, optional overflow count. At grid widths, event cards show only the title; venue and status stay in the accessible link label and remain visible in the mobile list. All grid-width titles use a single-line ellipsis to prevent narrow cells from breaking Korean words vertically.
-- States: default/focus/hover. Links retain visible focus outlines.
-- Accessibility: date cells use labelled sections; event links include name, date, venue, and status.
+- Structure: date number, race content, optional overflow count. A race with `officialSiteUrl` renders as an event link. A race without `officialSiteUrl` renders as non-clickable event content, never as an anchor backed by `applicationUrl`, a schedule site, or an index/detail source URL. At grid widths, event cards show only the title; venue and status stay in the accessible link label when linked and remain visible in the mobile list. All grid-width titles use a single-line ellipsis to prevent narrow cells from breaking Korean words vertically.
+- States: linked events use default, hover, active, and focus-visible states with visible focus outlines. Non-clickable race content uses the default readable card state only and must not expose hover, focus, active, pointer, or click affordance.
+- Accessibility: date cells use labelled sections. Event links include name, date, venue, and status. Non-clickable race content exposes the same race text without entering the tab order or announcing itself as a link.
 
 ### Freshness Notice
 - Structure: generated timestamp; when collection is partial, the text also names each failed source ID.
@@ -125,10 +125,11 @@ Content is constrained to 1200px. At 375px the calendar becomes an event-only li
 - Accessibility: selecting a specific year or month moves focus to the first visible month heading when a result exists. Headings retain the visible page focus treatment, and filtering has no motion dependency.
 
 ### Monthly Race Rows
-- Structure: a month heading and result count followed by repeated rows containing one fixed-aspect media slot with an accepted event-specific remote logo or, when that logo is missing, rejected before rendering, or fails to load, `public/logo1.png` exactly once. The media retains its overlaid semantic date beside the race title, venue, registration status, course metadata, and favorite button. Rows link to race details, but the favorite button is a separate control and must not be nested inside the link. The former generated athletic/city inline SVG is not a Monthly Race Row media source or fallback.
+- Structure: a month heading and result count followed by repeated rows containing one fixed-aspect media slot with an accepted event-specific remote logo or, when that logo is missing, rejected before rendering, or fails to load, `public/logo1.png` exactly once. The media retains its overlaid semantic date beside the race title, venue, registration status, course metadata, and favorite button. Rows link only when `officialSiteUrl` is present. Rows without `officialSiteUrl` render the same race content without an anchor; `applicationUrl`, schedule sites, index pages, and source detail pages are never row hrefs. The favorite button is a separate control and must not be nested inside the link. The former generated athletic/city inline SVG is not a Monthly Race Row media source or fallback.
 - Layout: use `--race-row-gap`, `--race-row-padding`, and `--radius-card`. Desktop metadata reads in one horizontal rhythm; at narrow widths it wraps beneath the title without truncating the date, venue, or status. Long titles use a single-line ellipsis only where the existing grid-width rule requires it.
 - Surface: rows use `--surface-elevated`, `--row-border`, and `--row-shadow`; the media slot uses `--radius-media` and the fixed `--race-thumbnail-ratio` 4:3 transparent frame. The contained logo image box, not the full slot, uses the always-white `--logo-surface` in light and dark modes.
-- States: row link default, hover, active, and focus-visible; unavailable metadata uses the existing `--quiet` treatment and remains explicit in text.
+- States: linked rows use row link default, hover, active, and focus-visible states. Non-clickable rows use the default readable row state only and must not show hover, focus, active, pointer, or click affordance. Unavailable metadata uses the existing `--quiet` treatment and remains explicit in text.
+- Accessibility: linked rows have an accessible name that carries race name, date, venue, and status. Non-clickable rows keep that text visible or programmatically available as static content, are not keyboard focusable as a row link, and do not announce a destination.
 - Calendar relationship: monthly rows are the homepage browse presentation and do not remove or weaken Month Navigation, calendar cells, the seven-column grid at 768px, or the event-only mobile calendar list requirements.
 
 ### Favorite Button
