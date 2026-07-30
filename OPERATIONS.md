@@ -65,7 +65,7 @@ Inspect `public/races.json`:
 - For `official-sites`, `succeeded` means the enrichment stage completed. Ordinary candidate load, parse, or identity rejection increments `rejected` without setting `succeeded: false`. A fixture-index initialization problem or another stage setup/execution failure sets it to `false`.
 - `official-sites.recordCount` is accepted enrichment. Its message separates discovered candidates, candidate loader invocations, accepted pages, rejected candidates, and candidates skipped by budget.
 - `fetched` must be at most 40 and counts candidate loader invocations, not raw HTTP requests. A live invocation can issue the initial request plus at most two validated redirects, for up to three live transport requests. The budget is not a cap on `races`; output race coverage must not be truncated when it is exhausted.
-- Fixture mode and live mode fail closed when no official page is accepted. There is no source-field fallback for public dates, venues, courses, prices, registration state, notes, logos, or `applicationUrl`.
+- Fixture mode and live mode can complete successfully with zero accepted official races when at least one source adapter succeeded; the generated output remains schema-valid with `races: []` and can be deployed. The collector fails closed and preserves existing output only when every source adapter fails. There is no source-field fallback for public dates, venues, courses, prices, registration state, notes, logos, or `applicationUrl`.
 - Registration fees, deadlines, and application URLs require confirmation at the organizer link before registration.
 
 ## Source Policy

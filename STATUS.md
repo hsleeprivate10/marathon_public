@@ -17,6 +17,7 @@
 - Unified `applicationUrl` and `officialSiteUrl` publication behind one public non-payment URL policy, including dedicated payment host and payment/checkout/billing/purchase path rejection.
 - Added a global 40 official candidate loader-invocation budget without limiting published races, plus zero-network local fixture mappings and live-only SSRF/redirect/content/body safety boundaries.
 - Added a homepage weather panel with current city/district, temperature, humidity, cloud cover, wind, precipitation, US AQI, PM2.5, and PM10. Browser location uses two-decimal coordinates, falls back to `서울특별시 중구`, and keeps forecast, city lookup, and air-quality failures isolated.
+- Current UI link behavior uses only `officialSiteUrl` for homepage rows and calendar events. Races without `officialSiteUrl` render as non-clickable content with no hover, focus, or click affordance; `applicationUrl` remains accepted official registration or page data but is not used as a UI href. Current collection writes and deploys valid empty output when at least one source succeeds but zero official races are accepted, while all-source failure still fails closed and preserves existing output.
 
 ## Fresh Verification Evidence
 
