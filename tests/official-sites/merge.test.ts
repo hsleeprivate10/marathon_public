@@ -1,28 +1,7 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import type { Race } from "../../src/contract.js";
 import { mergeOfficialPage } from "../../src/official-sites/merge.js";
 import { parseOfficialPage } from "../../src/official-sites/parser.js";
-
-const fixture = (name: string) => readFileSync(`tests/fixtures/official-sites/${name}`, "utf8");
-const baseRace = (overrides: Partial<Race> = {}): Race => ({
-  name: "2026 서울국제마라톤",
-  eventDate: "2026-03-15",
-  registrationDeadline: null,
-  venue: "미상",
-  courses: [
-    { name: "풀", price: null },
-    { name: "5K", price: 10000 },
-  ],
-  applicationUrl: "https://source.example/apply",
-  sources: ["gorunning"],
-  verified: false,
-  lastVerified: null,
-  updatedAt: "2026-01-01T00:00:00.000Z",
-  generatedAt: "2026-01-01T00:00:00.000Z",
-  registrationStatus: "unknown",
-  ...overrides,
-});
+import { baseRace, fixture } from "./merge-helpers.js";
 
 describe("mergeOfficialPage", () => {
   it("replaces an adapter logo with a matching accepted official event logo", () => {
@@ -65,7 +44,7 @@ describe("mergeOfficialPage", () => {
 
     expect(result.accepted).toBe(true);
     if (!result.accepted) throw new Error(result.reason);
-    expect(result.race.logoUrl).toBeUndefined();
+    expect(result.race.logoUrl).toBe("https://adapter.example/seoul-logo.png");
   });
 
   it("returns only a typed reason when official identity is rejected", () => {
@@ -136,6 +115,37 @@ describe("mergeOfficialPage", () => {
       { name: "10K", price: 40000, priceSource: "structured" },
       { name: "하프", price: 55000, priceSource: "body-text" },
     ]);
+  });
+
+  it("accepts a verified HTTP final official page without publishing traversal evidence", () => {
+    // Given: a traversal seed race whose source/application URL is not publication authority.
+    const sourceApplicationUrl = "https://entry.saunarun-official.example.org/register/2026";
+    const race = baseRace({
+      name: "2026 사우나런 올림픽공원",
+      eventDate: "2026-07-31",
+      applicationUrl: sourceApplicationUrl,
+      venue: "마라톤고 상세 페이지",
+      sources: ["marathongo"],
+    });
+    const parsed = parseOfficialPage(
+      "<h1>2026 사우나런 올림픽공원</h1><p>대회일 2026년 7월 31일</p><p>장소: 올림픽공원 평화의광장</p>",
+      "http://saunarun-official.example.org/2026",
+    );
+
+    // When: the final fetched page is same-race verified and materialized.
+    const result = mergeOfficialPage(
+      race,
+      parsed,
+      "http://saunarun-official.example.org/2026",
+      "2026-01-02T00:00:00.000Z",
+    );
+
+    // Then: publication uses only the verified official page and falls applicationUrl back to it.
+    expect(result.accepted).toBe(true);
+    if (!result.accepted) throw new Error(result.reason);
+    expect(result.race.officialSiteUrl).toBe("http://saunarun-official.example.org/2026");
+    expect(result.race.applicationUrl).toBe("http://saunarun-official.example.org/2026");
+    expect(result.race.applicationUrl).not.toBe(sourceApplicationUrl);
   });
 
   it("returns typed rejections and leaves mismatched races unchanged", () => {
