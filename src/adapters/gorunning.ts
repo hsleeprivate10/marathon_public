@@ -12,10 +12,10 @@ import {
   type AdapterResult,
   type AdapterStageCounters,
   type CollectConfig,
-  type DiscoveredRaceLink,
   INTER_FETCH_DELAY_MS,
   type SourceAdapter,
   type SourceDiscoveryCandidate,
+  type TraversalSeed,
   failedMetadata,
   fetchWithTimeout,
   readFixture,
@@ -35,7 +35,7 @@ const DETAIL_BUDGET = 200;
 const EMPTY_COUNTERS: AdapterStageCounters = {
   discoveryCandidates: 0,
   sourceDetailsFetched: 0,
-  discoveredOfficialCandidates: 0,
+  traversalSeeds: 0,
   rejectedCandidates: 0,
   budgetSkipped: 0,
 };
@@ -48,9 +48,7 @@ const BASE_URL = "https://gorunning.kr";
 const SOURCE_HOSTS = ["gorunning.kr", "gorunning.co.kr"] as const;
 const AGGREGATOR_HOSTS = KNOWN_AGGREGATOR_HOSTS;
 
-function withoutSelfSourceApplications(
-  links: readonly DiscoveredRaceLink[],
-): readonly DiscoveredRaceLink[] {
+function withoutSelfSourceApplications(links: readonly TraversalSeed[]): readonly TraversalSeed[] {
   return links.filter((link) => {
     if (link.kind !== "application") return true;
     if (isGenericHomepageUrl(link.url)) return false;
@@ -63,7 +61,7 @@ function discoverDetailLinks(
   race: Race,
   detailHtml: string,
   sourcePageUrl: string,
-): readonly DiscoveredRaceLink[] {
+): readonly TraversalSeed[] {
   return withoutSelfSourceApplications(
     discoverRaceLinks({
       race,
@@ -134,7 +132,7 @@ export const GoRunningAdapter: SourceAdapter = {
       const items = parseGoRunningList(listHtml);
       const budget = config.detailBudget ?? DETAIL_BUDGET;
       const discoveryCandidates: SourceDiscoveryCandidate[] = [];
-      const discoveredOfficialCandidates: DiscoveredRaceLink[] = [];
+      const traversalSeeds: TraversalSeed[] = [];
       let sourceDetailsFetched = 0;
       let rejectedCandidates = 0;
       let budgetSkipped = 0;
@@ -165,7 +163,7 @@ export const GoRunningAdapter: SourceAdapter = {
         sourceDetailsFetched += 1;
         const links = discoverDetailLinks(raceForDiscovery(candidate, now), detailHtml, detailUrl);
         if (links.length === 0) rejectedCandidates += 1;
-        discoveredOfficialCandidates.push(...links);
+        traversalSeeds.push(...links);
 
         if (!config.fixtureDir) {
           await sleep(INTER_FETCH_DELAY_MS);
@@ -175,18 +173,18 @@ export const GoRunningAdapter: SourceAdapter = {
       const counters: AdapterStageCounters = {
         discoveryCandidates: discoveryCandidates.length,
         sourceDetailsFetched,
-        discoveredOfficialCandidates: discoveredOfficialCandidates.length,
+        traversalSeeds: traversalSeeds.length,
         rejectedCandidates,
         budgetSkipped,
       };
 
       return {
         discoveryCandidates,
-        discoveredOfficialCandidates,
+        traversalSeeds,
         metadata: successMetadata(
           id,
-          discoveredOfficialCandidates.length,
-          `Discovered ${discoveryCandidates.length} GoRunning source-detail candidates; fetched ${sourceDetailsFetched}; official candidates ${discoveredOfficialCandidates.length}; rejected ${rejectedCandidates}; budget skipped ${budgetSkipped}`,
+          traversalSeeds.length,
+          `Discovered ${discoveryCandidates.length} GoRunning source-detail candidates; fetched ${sourceDetailsFetched}; traversal seeds ${traversalSeeds.length}; rejected ${rejectedCandidates}; budget skipped ${budgetSkipped}`,
         ),
         stageCounters: counters,
       };
@@ -194,7 +192,7 @@ export const GoRunningAdapter: SourceAdapter = {
       const message = error instanceof Error ? error.message : String(error);
       return {
         discoveryCandidates: [],
-        discoveredOfficialCandidates: [],
+        traversalSeeds: [],
         metadata: failedMetadata(id, true, `GoRunning failed: ${message}`),
         stageCounters: EMPTY_COUNTERS,
       };
