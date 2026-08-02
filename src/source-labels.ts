@@ -1,5 +1,6 @@
 const sourceLabels: Readonly<Record<string, string>> = {
   gorunning: "고러닝",
+  marathongo: "마라톤고",
   kormarathon: "전국마라톤협회",
   emarathon: "이마라톤",
   maedal: "매달",

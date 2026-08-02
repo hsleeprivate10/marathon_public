@@ -31,7 +31,7 @@ body {
   margin: 0;
   background: var(--surface-primary);
   color: var(--text-primary);
-  font-family: "Noto Sans KR", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 button,
