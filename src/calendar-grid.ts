@@ -42,10 +42,6 @@ function renderRace(race: Race): HTMLElement {
     anchor.href = href;
     anchor.target = "_blank";
     anchor.rel = "noopener noreferrer";
-    anchor.setAttribute(
-      "aria-label",
-      `${race.name}, ${race.eventDate}, ${race.venue}, ${formatStatus(race.registrationStatus)}`,
-    );
     card = anchor;
   }
   card.append(

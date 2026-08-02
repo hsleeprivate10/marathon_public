@@ -156,7 +156,7 @@ for (const width of viewports) {
       overflow: document.documentElement.scrollWidth > window.innerWidth,
       replacementCharacters: document.body.textContent?.includes("\uFFFD") ?? false,
       koreanFontLoaded: document.fonts.check('400 16px "Noto Sans KR"', "메인으로 돌아가기"),
-      applicationLinks: [...calendar.querySelectorAll<HTMLAnchorElement>(".race")].map(
+      applicationLinks: [...calendar.querySelectorAll<HTMLAnchorElement>("a.race")].map(
         (link) => link.href,
       ),
     }));

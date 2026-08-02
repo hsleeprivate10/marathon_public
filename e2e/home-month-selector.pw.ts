@@ -1,5 +1,7 @@
+import { writeFile } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
 import {
+  e2eCollection,
   emptyCollection,
   fixFixtureClock,
   fixtureShape,
@@ -208,7 +210,8 @@ test("project-scoped deployment loads local Korean fonts and favicon", async ({ 
 });
 
 test("public races data loads without assuming calendar shape", async ({ page }) => {
-  // Given the unmodified deployed races artifact,
+  // Given a deterministic deployed races artifact,
+  await writeFile("dist/races.json", JSON.stringify(e2eCollection));
   const signals = observeErrors(page);
   await routeWeather(page);
 

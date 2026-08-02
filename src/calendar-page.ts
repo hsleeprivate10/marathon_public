@@ -3,6 +3,7 @@ import { createCalendarBranding } from "./calendar-header.js";
 import type { Race } from "./contract.js";
 import { type Filters, filterRaces } from "./filters.js";
 import { failedSourceNames } from "./source-labels.js";
+import "./style.css";
 import "./calendar.css";
 import "./calendar-responsive.css";
 
