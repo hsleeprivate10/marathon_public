@@ -41,13 +41,15 @@ describe("cross-evidence canonical deduplication", () => {
   it("keeps one explicit official candidate when JSON-LD appears before matching anchor text", () => {
     const html = `<script type="application/ld+json">{
         "@type":"Event",
+        "name":"제25회 서울국제마라톤",
+        "startDate":"2025-03-16",
         "url":"https://dup.example/home?eventId=abc&utm_source=x",
         "organizer":{"url":"https://dup.example./home?eventId=abc"}
       }</script>
       <a href="https://DUP.example./home?eventId=abc#top">공식 홈페이지</a>`;
 
     expect(rows(html)).toEqual([
-      ["official-site", "explicit-label", "https://dup.example/home?eventId=abc"],
+      ["official", "explicit-label", "https://dup.example/home?eventId=abc"],
     ]);
   });
 
@@ -55,6 +57,8 @@ describe("cross-evidence canonical deduplication", () => {
     const html = `<a href="https://예시.example./race?event=2025">대회 홈페이지</a>
       <script type="application/ld+json">{
         "@type":"Event",
+        "name":"제25회 서울국제마라톤",
+        "startDate":"2025-03-16",
         "url":"https://xn--vv4b11d.example/race?event=2025",
         "organizer":[
           {"url":"https://예시.example/race?event=2025"},
@@ -63,13 +67,15 @@ describe("cross-evidence canonical deduplication", () => {
       }</script>`;
 
     expect(rows(html)).toEqual([
-      ["official-site", "explicit-label", "https://xn--vv4b11d.example/race?event=2025"],
+      ["official", "explicit-label", "https://xn--vv4b11d.example/race?event=2025"],
     ]);
   });
 
   it("prefers structured Event over duplicate organizer URLs when no explicit link exists", () => {
     const html = `<script type="application/ld+json">{
       "@type":"Event",
+      "name":"제25회 서울국제마라톤",
+      "startDate":"2025-03-16",
       "organizer":[
         {"url":"https://struct.example/home?id=7"},
         {"url":"https://STRUCT.example./home?id=7&utm_medium=x"}
@@ -78,7 +84,7 @@ describe("cross-evidence canonical deduplication", () => {
     }</script>`;
 
     expect(rows(html)).toEqual([
-      ["official-site", "structured-event", "https://struct.example/home?id=7"],
+      ["official", "structured-event", "https://struct.example/home?id=7"],
     ]);
   });
 
@@ -87,9 +93,13 @@ describe("cross-evidence canonical deduplication", () => {
       <a href="https://same.example/register?idx=1001&utm_source=x">공식 홈페이지</a>
       <script type="application/ld+json">{
         "@type":"Event",
+        "name":"제25회 서울국제마라톤",
+        "startDate":"2025-03-16",
         "url":"https://same.example/register?idx=1001#official"
       }</script>`;
 
-    expect(rows(html)).toEqual([]);
+    expect(rows(html)).toEqual([
+      ["application", "explicit-label", "https://same.example/register?idx=1001"],
+    ]);
   });
 });

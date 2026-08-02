@@ -73,12 +73,12 @@ describe("homepage label negation", () => {
       <a href="https://apply.example/register">공식 홈페이지 신청하기</a>`;
 
     expect(discover(html).map((link) => [link.kind, link.url])).toEqual([
-      ["official-site", "https://official.example/one"],
-      ["official-site", "https://official.example/two"],
-      ["official-site", "https://official.example/three"],
-      ["official-site", "https://official.example/four"],
-      ["official-site", "https://official.example/five"],
-      ["official-site", "https://official.example/six"],
+      ["official", "https://official.example/one"],
+      ["official", "https://official.example/two"],
+      ["official", "https://official.example/three"],
+      ["official", "https://official.example/four"],
+      ["official", "https://official.example/five"],
+      ["official", "https://official.example/six"],
     ]);
   });
 });
