@@ -13,10 +13,10 @@ import { adapters } from "./adapters/index.js";
 import {
   type AdapterStageCounters,
   type CollectConfig,
-  type DiscoveredRaceLink,
   INTER_FETCH_DELAY_MS,
   type SourceAdapter,
   type SourceDiscoveryCandidate,
+  type TraversalSeed,
   failedMetadata,
   sleep,
 } from "./adapters/types.js";
@@ -24,18 +24,20 @@ import { CollectionOutputSchema, type Race, type SourceRecord } from "./contract
 import { computeRegistrationStatus } from "./contract.js";
 import { deduplicateRaceCollection, sortRaces } from "./normalize.js";
 import {
+  type EnrichmentCounts,
   type OfficialEnrichmentInput,
   type OfficialPageLoader,
   enrichOfficialSites,
 } from "./official-sites/enrichment.js";
 import { fetchOfficialPage } from "./official-sites/fetch.js";
 import { createFixtureOfficialPageLoader } from "./official-sites/fixture-loader.js";
+import { createTraversalRunBudget } from "./official-sites/traversal.js";
 
 const OFFICIAL_FETCH_BUDGET = 40;
 
 type AdapterCollection = {
   readonly discoveryCandidates: readonly SourceDiscoveryCandidate[];
-  readonly discoveredOfficialCandidates: readonly DiscoveredRaceLink[];
+  readonly traversalSeeds: readonly TraversalSeed[];
   readonly stageCounters: AdapterStageCounters;
 };
 
@@ -91,7 +93,7 @@ export async function collect(
     if (result.metadata.succeeded) {
       adapterCollections.push({
         discoveryCandidates: result.discoveryCandidates,
-        discoveredOfficialCandidates: result.discoveredOfficialCandidates,
+        traversalSeeds: result.traversalSeeds,
         stageCounters: result.stageCounters,
       });
     }
@@ -99,9 +101,7 @@ export async function collect(
 
   const officialInput: OfficialEnrichmentInput = {
     discoveryCandidates: adapterCollections.flatMap((collection) => collection.discoveryCandidates),
-    discoveredOfficialCandidates: adapterCollections.flatMap(
-      (collection) => collection.discoveredOfficialCandidates,
-    ),
+    traversalSeeds: adapterCollections.flatMap((collection) => collection.traversalSeeds),
   };
 
   let materialized: readonly Race[] = [];
@@ -119,7 +119,8 @@ export async function collect(
       }
     }
     const liveFetch = internals.fetchOfficialPage ?? fetchOfficialPage;
-    const loadPage: OfficialPageLoader = fixtureLoader ?? ((url) => liveFetch(url));
+    const loadPage: OfficialPageLoader =
+      fixtureLoader ?? ((url, purpose = "official") => liveFetch(url, { purpose }));
     const officialResult = await enrichOfficialSites(officialInput, {
       today: generatedAt.slice(0, 10),
       verifiedAt: generatedAt,
@@ -128,6 +129,7 @@ export async function collect(
         fixtureLoader === undefined ? (internals.courtesyDelayMs ?? INTER_FETCH_DELAY_MS) : 0,
       loadPage,
       sleep: internals.sleep ?? sleep,
+      runBudget: createTraversalRunBudget({ maxFetches: OFFICIAL_FETCH_BUDGET }),
     });
     materialized = officialResult.races;
     metadata.push({
@@ -146,7 +148,7 @@ export async function collect(
       attempted: true,
       succeeded: false,
       recordCount: 0,
-      message: `candidate=0 fetched=0 accepted=0 rejected=0 budgetSkipped=0 error=${message}`,
+      message: `${enrichmentMessage(emptyEnrichmentCounts())} error=${message}`,
     });
   }
 
@@ -187,12 +189,22 @@ export async function collect(
   return validated;
 }
 
-function enrichmentMessage(counts: {
-  readonly candidate: number;
-  readonly fetched: number;
-  readonly accepted: number;
-  readonly rejected: number;
-  readonly budgetSkipped: number;
-}): string {
-  return `candidate=${counts.candidate} fetched=${counts.fetched} accepted=${counts.accepted} rejected=${counts.rejected} budgetSkipped=${counts.budgetSkipped}`;
+function enrichmentMessage(counts: EnrichmentCounts): string {
+  return `seed=${counts.seed} fetched=${counts.fetched} accepted=${counts.accepted} rejected=${counts.rejected} policyRejected=${counts.policyRejected} fetchRejected=${counts.fetchRejected} identityRejected=${counts.identityRejected} depthSkipped=${counts.depthSkipped} cycleSkipped=${counts.cycleSkipped} hostBudgetSkipped=${counts.hostBudgetSkipped} runBudgetSkipped=${counts.runBudgetSkipped}`;
+}
+
+function emptyEnrichmentCounts(): EnrichmentCounts {
+  return {
+    seed: 0,
+    fetched: 0,
+    accepted: 0,
+    rejected: 0,
+    policyRejected: 0,
+    fetchRejected: 0,
+    identityRejected: 0,
+    depthSkipped: 0,
+    cycleSkipped: 0,
+    hostBudgetSkipped: 0,
+    runBudgetSkipped: 0,
+  };
 }

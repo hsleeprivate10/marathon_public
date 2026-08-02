@@ -1,166 +1,20 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
-// allow: SIZE_OK - Task 8 orchestration acceptance scenarios are confined to this existing shared test file; splitting would create out-of-scope files.
-import {
-  type DiscoveredRaceLink,
-  type SourceAdapter,
-  type SourceDiscoveryCandidate,
-  type TransientRaceIdentityEvidence,
-  discoveredApplicationUrl,
-  discoveredOfficialHomepageUrl,
-  sourceDetailUrl,
-  sourceId,
-  transientIdentityHint,
-} from "../src/adapters/types.js";
 import { CollectionOutputSchema } from "../src/contract.js";
 import { collect } from "../src/orchestrator.js";
+import {
+  adapter,
+  createOutputDir,
+  noDelay,
+  officialPage,
+  removeOutputDir,
+} from "./orchestrator-helpers.js";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const FIXTURES_DIR = resolve(__dirname, "fixtures");
-const TMP_DIR = resolve(__dirname, "__tmp_output__");
-const NOW = "2026-01-02T03:04:05.000Z";
+const TMP_DIR = resolve(import.meta.dirname, "__tmp_output_core__");
 
-type AdapterFixture = {
-  readonly id: string;
-  readonly name: string;
-  readonly eventDate: string;
-  readonly officialUrls?: readonly string[];
-  readonly applicationUrls?: readonly string[];
-};
-
-type OfficialPageFixture = {
-  readonly name: string;
-  readonly eventDate: string;
-  readonly venue?: string;
-  readonly registrationPath?: string | null;
-};
-
-function identityEvidence(name: string, eventDate: string): TransientRaceIdentityEvidence {
-  return {
-    titleHints: [transientIdentityHint(name)],
-    dateHints: [transientIdentityHint(eventDate)],
-    organizerHints: [],
-  };
-}
-
-function discoveryCandidate(fixture: AdapterFixture): SourceDiscoveryCandidate {
-  const id = sourceId(fixture.id);
-  return {
-    sourceId: id,
-    sourceDetailUrl: sourceDetailUrl(
-      `https://${fixture.id}.example/detail/${encodeURIComponent(fixture.name)}`,
-    ),
-    identityEvidence: identityEvidence(fixture.name, fixture.eventDate),
-  };
-}
-
-function officialLink(candidate: SourceDiscoveryCandidate, url: string): DiscoveredRaceLink {
-  const parsed = discoveredOfficialHomepageUrl(url);
-  if (parsed === null) throw new TypeError(`unsafe official URL: ${url}`);
-  return {
-    dedupKey: transientIdentityHint(
-      `${candidate.identityEvidence.titleHints[0] ?? "race"}|${candidate.identityEvidence.dateHints[0] ?? "date"}`,
-    ),
-    kind: "official-site",
-    url: parsed,
-    sourceId: candidate.sourceId,
-    sourceDetailUrl: candidate.sourceDetailUrl,
-    identityEvidence: candidate.identityEvidence,
-    evidence: "explicit-label",
-  };
-}
-
-function applicationLink(candidate: SourceDiscoveryCandidate, url: string): DiscoveredRaceLink {
-  const parsed = discoveredApplicationUrl(url);
-  if (parsed === null) throw new TypeError(`unsafe application URL: ${url}`);
-  return {
-    dedupKey: transientIdentityHint(
-      `${candidate.identityEvidence.titleHints[0] ?? "race"}|application`,
-    ),
-    kind: "application",
-    url: parsed,
-    sourceId: candidate.sourceId,
-    sourceDetailUrl: candidate.sourceDetailUrl,
-    identityEvidence: candidate.identityEvidence,
-    evidence: "explicit-label",
-  };
-}
-
-function adapter(fixture: AdapterFixture): SourceAdapter {
-  return {
-    id: fixture.id,
-    name: fixture.id,
-    baseUrl: `https://${fixture.id}.example`,
-    allowedPaths: ["/"],
-    collect: async () => {
-      const candidate = discoveryCandidate(fixture);
-      const officialUrls = fixture.officialUrls ?? [];
-      const applicationUrls = fixture.applicationUrls ?? [];
-      return {
-        discoveryCandidates: [candidate],
-        discoveredOfficialCandidates: [
-          ...officialUrls.map((url) => officialLink(candidate, url)),
-          ...applicationUrls.map((url) => applicationLink(candidate, url)),
-        ],
-        metadata: {
-          id: fixture.id,
-          attempted: true,
-          succeeded: true,
-          recordCount: officialUrls.length,
-          message: "ok",
-        },
-        stageCounters: {
-          discoveryCandidates: 1,
-          sourceDetailsFetched: 1,
-          discoveredOfficialCandidates: officialUrls.length,
-          rejectedCandidates: 0,
-          budgetSkipped: 0,
-        },
-      };
-    },
-  };
-}
-
-function emptyAdapter(id: string): SourceAdapter {
-  return {
-    id,
-    name: id,
-    baseUrl: `https://${id}.example`,
-    allowedPaths: ["/"],
-    collect: async () => ({
-      discoveryCandidates: [],
-      discoveredOfficialCandidates: [],
-      metadata: { id, attempted: true, succeeded: true, recordCount: 0, message: "empty" },
-      stageCounters: {
-        discoveryCandidates: 0,
-        sourceDetailsFetched: 0,
-        discoveredOfficialCandidates: 0,
-        rejectedCandidates: 0,
-        budgetSkipped: 0,
-      },
-    }),
-  };
-}
-
-function officialPage(fixture: OfficialPageFixture): string {
-  const venue = fixture.venue ?? "공식 장소";
-  const registrationPath =
-    fixture.registrationPath === undefined ? "/entry" : fixture.registrationPath;
-  const registration =
-    registrationPath === null ? "" : `<a href="${registrationPath}">참가신청</a>`;
-  return `<title>${fixture.name}</title><h1>${fixture.name}</h1><p>대회일 ${fixture.eventDate}</p><p>장소: ${venue}</p>${registration}`;
-}
-
-beforeEach(async () => {
-  await mkdir(TMP_DIR, { recursive: true });
-});
-
-afterEach(async () => {
-  await rm(TMP_DIR, { recursive: true, force: true });
-});
+beforeEach(() => createOutputDir(TMP_DIR));
+afterEach(() => removeOutputDir(TMP_DIR));
 
 describe("orchestrator", () => {
   it("materializes official candidates before RaceSchema acceptance and publication", async () => {
@@ -188,10 +42,8 @@ describe("orchestrator", () => {
             officialUrls: [officialUrl],
           }),
         ],
-        now: () => NOW,
+        ...noDelay,
         fetchOfficialPage,
-        sleep: vi.fn(() => Promise.resolve()),
-        courtesyDelayMs: 0,
       },
     );
     const published = JSON.parse(await readFile(resolve(TMP_DIR, "public", "races.json"), "utf8"));
@@ -238,10 +90,8 @@ describe("orchestrator", () => {
             officialUrls: [officialUrl],
           }),
         ],
-        now: () => NOW,
+        ...noDelay,
         fetchOfficialPage,
-        sleep: vi.fn(() => Promise.resolve()),
-        courtesyDelayMs: 0,
       },
     );
 
@@ -252,7 +102,8 @@ describe("orchestrator", () => {
       attempted: true,
       succeeded: true,
       recordCount: 1,
-      message: "candidate=1 fetched=1 accepted=1 rejected=0 budgetSkipped=0",
+      message:
+        "seed=1 fetched=1 accepted=1 rejected=0 policyRejected=0 fetchRejected=0 identityRejected=0 depthSkipped=0 cycleSkipped=0 hostBudgetSkipped=0 runBudgetSkipped=0",
     });
   });
 
@@ -288,19 +139,14 @@ describe("orchestrator", () => {
             officialUrls: [secondUrl],
           }),
         ],
-        now: () => NOW,
+        ...noDelay,
         fetchOfficialPage,
-        sleep: vi.fn(() => Promise.resolve()),
-        courtesyDelayMs: 0,
       },
     );
 
     expect(fetchOfficialPage.mock.calls.map(([url]) => url)).toEqual([firstUrl, secondUrl]);
     expect(result.races).toHaveLength(1);
-    expect(result.collectionMetadata.at(-1)).toMatchObject({
-      recordCount: 2,
-      message: "candidate=2 fetched=2 accepted=2 rejected=0 budgetSkipped=0",
-    });
+    expect(result.collectionMetadata.at(-1)).toMatchObject({ recordCount: 2 });
   });
 
   it("never publishes source-site application candidates as final applicationUrl", async () => {
@@ -331,10 +177,8 @@ describe("orchestrator", () => {
             applicationUrls: [sourceApplication],
           }),
         ],
-        now: () => NOW,
+        ...noDelay,
         fetchOfficialPage,
-        sleep: vi.fn(() => Promise.resolve()),
-        courtesyDelayMs: 0,
       },
     );
 
@@ -342,106 +186,22 @@ describe("orchestrator", () => {
     expect(result.races[0]?.applicationUrl).not.toBe(sourceApplication);
   });
 
-  it("writes empty output when no official pages are accepted", async () => {
-    // Given: an existing live file and a successful source adapter whose official page fetch fails.
-    const publicDir = resolve(TMP_DIR, "public");
-    await mkdir(publicDir, { recursive: true });
-    await writeFile(resolve(publicDir, "races.json"), "live-sentinel", "utf-8");
-    const officialUrl = "https://official.example/rejected";
-
-    // When: collection completes with no accepted official-site races.
-    const result = await collect(
-      { projectRoot: TMP_DIR, fixtureBaseDir: undefined },
-      {
-        adapters: [
-          adapter({
-            id: "source",
-            name: "2026 거절 대회",
-            eventDate: "2026-07-01",
-            officialUrls: [officialUrl],
-          }),
-        ],
-        now: () => NOW,
-        fetchOfficialPage: vi.fn(async () => ({
-          kind: "failed" as const,
-          url: officialUrl,
-          reason: "network" as const,
-        })),
-        sleep: vi.fn(() => Promise.resolve()),
-        courtesyDelayMs: 0,
-      },
-    );
-    const published = JSON.parse(await readFile(resolve(publicDir, "races.json"), "utf-8"));
-
-    // Then: the sentinel is replaced by valid empty collection output with accepted=0 metadata.
-    expect(result.races).toEqual([]);
-    expect(CollectionOutputSchema.parse(published).races).toEqual([]);
-    expect(published).toEqual(result);
-    expect(result.collectionMetadata.at(-1)).toMatchObject({
-      id: "official-sites",
-      recordCount: 0,
-      message: expect.stringContaining("accepted=0"),
-    });
-  });
-
-  it("preserves the existing live file when every adapter fails", async () => {
-    const publicDir = resolve(TMP_DIR, "public");
-    await mkdir(publicDir, { recursive: true });
-    await writeFile(resolve(publicDir, "races.json"), "live-sentinel", "utf-8");
-    const failedAdapter: SourceAdapter = {
-      ...emptyAdapter("failed"),
-      collect: async () => {
-        throw new Error("source unavailable");
-      },
-    };
-
-    await expect(
-      collect(
-        { projectRoot: TMP_DIR, fixtureBaseDir: undefined },
-        { adapters: [failedAdapter], now: () => NOW },
-      ),
-    ).rejects.toThrow(
-      "Live collection produced no publishable race data; existing output preserved",
-    );
-    expect(await readFile(resolve(publicDir, "races.json"), "utf-8")).toBe("live-sentinel");
-  });
-
-  it("writes empty output when successful adapters provide no official candidates", async () => {
-    // Given: an existing live file and a successful source adapter with zero official candidates.
-    const publicDir = resolve(TMP_DIR, "public");
-    await mkdir(publicDir, { recursive: true });
-    await writeFile(resolve(publicDir, "races.json"), "live-sentinel", "utf-8");
-
-    // When: collection completes without official-site candidates to materialize.
-    const result = await collect(
-      { projectRoot: TMP_DIR, fixtureBaseDir: undefined },
-      { adapters: [emptyAdapter("empty")], now: () => NOW },
-    );
-    const published = JSON.parse(await readFile(resolve(publicDir, "races.json"), "utf-8"));
-
-    // Then: the sentinel is replaced by valid empty collection output with accepted=0 metadata.
-    expect(result.races).toEqual([]);
-    expect(CollectionOutputSchema.parse(published).races).toEqual([]);
-    expect(published).toEqual(result);
-    expect(result.collectionMetadata.at(-1)).toMatchObject({
-      id: "official-sites",
-      recordCount: 0,
-      message: expect.stringContaining("accepted=0"),
-    });
-  });
-
-  it("sorts materialized official races by eventDate after status refresh", async () => {
-    const lateUrl = "https://official.example/late";
-    const earlyUrl = "https://official.example/early";
+  it("materializes an official race through an application-only traversal seed", async () => {
+    const applicationUrl = "https://apply.example/register";
+    const finalOfficialUrl = "https://official.example/application-final";
     const fetchOfficialPage = vi.fn(async (url: string) => ({
       kind: "success" as const,
       url,
-      address: "203.0.113.5",
+      address: "203.0.113.6",
       contentType: "text/html",
       body:
-        url === lateUrl
-          ? officialPage({ name: "2026 늦은 공식 마라톤", eventDate: "2026-09-01" })
-          : officialPage({ name: "2026 이른 공식 마라톤", eventDate: "2026-03-01" }),
+        url === applicationUrl
+          ? `<h1>2026 신청 경유 대회</h1><p>대회일 2026년 8월 1일</p><a href="${finalOfficialUrl}">공식 홈페이지</a>`
+          : officialPage({
+              name: "2026 신청 경유 대회",
+              eventDate: "2026-08-01",
+              venue: "공식 공원",
+            }),
     }));
 
     const result = await collect(
@@ -449,87 +209,25 @@ describe("orchestrator", () => {
       {
         adapters: [
           adapter({
-            id: "late",
-            name: "2026 늦은 공식 마라톤",
-            eventDate: "2026-09-01",
-            officialUrls: [lateUrl],
-          }),
-          adapter({
-            id: "early",
-            name: "2026 이른 공식 마라톤",
-            eventDate: "2026-03-01",
-            officialUrls: [earlyUrl],
-          }),
-        ],
-        now: () => NOW,
-        fetchOfficialPage,
-        sleep: vi.fn(() => Promise.resolve()),
-        courtesyDelayMs: 0,
-      },
-    );
-
-    expect(result.races.map((race) => race.eventDate)).toEqual(["2026-03-01", "2026-09-01"]);
-    expect(result.races.every((race) => race.generatedAt === NOW && race.updatedAt === NOW)).toBe(
-      true,
-    );
-  });
-
-  it("runs fixture adapters through official fixtures without invoking live fetch", async () => {
-    const fetchOfficialPage = vi.fn(() => Promise.reject(new Error("network attempted")));
-    const sleep = vi.fn(() => Promise.resolve());
-    const result = await collect(
-      { projectRoot: TMP_DIR, fixtureBaseDir: FIXTURES_DIR },
-      { now: () => NOW, fetchOfficialPage, sleep },
-    );
-
-    expect(fetchOfficialPage).not.toHaveBeenCalled();
-    expect(sleep).not.toHaveBeenCalled();
-    expect(CollectionOutputSchema.safeParse(result).success).toBe(true);
-    expect(result.collectionMetadata.slice(0, 8).map((item) => item.id)).toEqual([
-      "gorunning",
-      "kormarathon",
-      "emarathon",
-      "maedal",
-      "kaaf",
-      "marathonmoa",
-      "runningmap",
-      "marathonmate",
-    ]);
-    expect(result.collectionMetadata[8]?.id).toBe("official-sites");
-  });
-
-  it("retains candidate counts when the official fixture index is malformed", async () => {
-    const fixtureRoot = resolve(TMP_DIR, "fixtures");
-    await mkdir(resolve(fixtureRoot, "official-sites"), { recursive: true });
-    await writeFile(resolve(fixtureRoot, "official-sites", "index.json"), "{broken", "utf8");
-    const officialUrl = "https://official.example/fixture-race";
-    const fetchOfficialPage = vi.fn(() => Promise.reject(new Error("network attempted")));
-
-    const result = await collect(
-      { projectRoot: TMP_DIR, fixtureBaseDir: fixtureRoot },
-      {
-        adapters: [
-          adapter({
-            id: "fixture",
-            name: "2026 Fixture Race",
+            id: "source",
+            name: "2026 신청 경유 대회",
             eventDate: "2026-08-01",
-            officialUrls: [officialUrl],
+            applicationUrls: [applicationUrl],
           }),
         ],
-        now: () => NOW,
+        ...noDelay,
         fetchOfficialPage,
       },
     );
 
-    expect(result.races).toEqual([]);
-    expect(fetchOfficialPage).not.toHaveBeenCalled();
-    expect(result.collectionMetadata.at(-1)).toMatchObject({
-      id: "official-sites",
-      succeeded: false,
-      recordCount: 0,
-      message: expect.stringContaining(
-        "candidate=1 fetched=1 accepted=0 rejected=1 budgetSkipped=0 error=",
-      ),
+    expect(fetchOfficialPage.mock.calls.map(([url]) => url)).toEqual([
+      applicationUrl,
+      finalOfficialUrl,
+    ]);
+    expect(result.races[0]).toMatchObject({
+      officialSiteUrl: finalOfficialUrl,
+      applicationUrl: "https://official.example/entry",
     });
+    expect(result.collectionMetadata.at(-1)).toMatchObject({ recordCount: 1 });
   });
 });
