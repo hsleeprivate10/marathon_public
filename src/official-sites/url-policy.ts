@@ -1,6 +1,6 @@
 import { lookup as nodeLookup } from "node:dns/promises";
 import { isIP } from "node:net";
-import { safeOfficialPageUrl } from "./application-url-policy.js";
+import { safeApplicationUrl, safeOfficialPageUrl } from "./application-url-policy.js";
 import { isPublicAddress } from "./ip-policy.js";
 
 export type IpFamily = 4 | 6;
@@ -11,6 +11,13 @@ export type DnsAddress = {
 };
 
 export type DnsLookup = (hostname: string) => Promise<readonly DnsAddress[]>;
+
+export type UrlFetchPurpose = "official" | "traversal";
+
+export type ResolvePublicUrlOptions = {
+  readonly lookup?: DnsLookup;
+  readonly purpose?: UrlFetchPurpose;
+};
 
 export type UrlPolicyRejection =
   | "invalid-url"
@@ -46,10 +53,27 @@ function normalizedHostname(url: URL): string {
   return unwrapped.endsWith(".") ? unwrapped.slice(0, -1) : unwrapped;
 }
 
+function safeUrlForPurpose(url: URL, purpose: UrlFetchPurpose): string | null {
+  switch (purpose) {
+    case "official":
+      return safeOfficialPageUrl(url.href);
+    case "traversal":
+      return safeApplicationUrl(url.href);
+  }
+}
+
+function urlPolicyOptions(
+  options: DnsLookup | ResolvePublicUrlOptions,
+): Required<ResolvePublicUrlOptions> {
+  if (typeof options === "function") return { lookup: options, purpose: "official" };
+  return { lookup: options.lookup ?? defaultLookup, purpose: options.purpose ?? "official" };
+}
+
 export async function resolvePublicUrl(
   input: string,
-  lookup: DnsLookup = defaultLookup,
+  options: DnsLookup | ResolvePublicUrlOptions = {},
 ): Promise<UrlPolicyResult> {
+  const { lookup, purpose } = urlPolicyOptions(options);
   let url: URL;
   try {
     url = new URL(input);
@@ -73,7 +97,7 @@ export async function resolvePublicUrl(
     if (!isPublicAddress(hostname, literalFamily)) {
       return { kind: "rejected", reason: "blocked-address" };
     }
-    const safeUrl = safeOfficialPageUrl(url.href);
+    const safeUrl = safeUrlForPurpose(url, purpose);
     if (safeUrl === null) return { kind: "rejected", reason: "unsafe-public-url" };
     return { kind: "allowed", url: safeUrl, hostname, address: hostname, family: literalFamily };
   }
@@ -90,7 +114,7 @@ export async function resolvePublicUrl(
   }
   const pinned = addresses[0];
   if (pinned === undefined) return { kind: "rejected", reason: "dns-failure" };
-  const safeUrl = safeOfficialPageUrl(url.href);
+  const safeUrl = safeUrlForPurpose(url, purpose);
   if (safeUrl === null) return { kind: "rejected", reason: "unsafe-public-url" };
   return {
     kind: "allowed",

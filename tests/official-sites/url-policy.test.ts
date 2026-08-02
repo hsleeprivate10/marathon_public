@@ -175,6 +175,39 @@ describe("resolvePublicUrl", () => {
     expect(result).toEqual({ kind: "rejected", reason: "unsafe-public-url" });
   });
 
+  it("allows safe registration paths only for traversal purpose", async () => {
+    // Given: a public application seed URL that is safe to inspect but not publish.
+    const input = "https://Race.Example/register";
+
+    // When: the same URL is resolved for official publication and traversal inspection.
+    const official = await resolvePublicUrl(input, { lookup: publicLookup, purpose: "official" });
+    const traversal = await resolvePublicUrl(input, { lookup: publicLookup, purpose: "traversal" });
+
+    // Then: official policy stays strict while traversal receives a pinned public URL.
+    expect(official).toEqual({ kind: "rejected", reason: "unsafe-public-url" });
+    expect(traversal).toEqual({
+      kind: "allowed",
+      url: "https://race.example/register",
+      hostname: "race.example",
+      address: "93.184.216.34",
+      family: 4,
+    });
+  });
+
+  it.each([
+    ["https://user:secret@race.example/register", "credentials"],
+    ["https://race.example/admin", "unsafe-public-url"],
+    ["https://race.example/api/races", "unsafe-public-url"],
+    ["https://payments.example/register", "unsafe-public-url"],
+  ])("rejects unsafe traversal URL %s", async (input, reason) => {
+    // Given: a traversal seed with a forbidden target class.
+    // When: traversal-purpose policy resolves it.
+    const result = await resolvePublicUrl(input, { lookup: publicLookup, purpose: "traversal" });
+
+    // Then: the seed is rejected before transport.
+    expect(result).toEqual({ kind: "rejected", reason });
+  });
+
   it.each([
     "/events/apiary",
     "/events/member-run",
