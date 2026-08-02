@@ -35,6 +35,11 @@ describe("discovery structural JSON-LD script detection", () => {
       urls(
         `<script TYPE="application/ld+json">{"@type":"Event","url":"https://event.example/exact"}</script>`,
       ),
+    ).toEqual([]);
+    expect(
+      urls(
+        `<script TYPE="application/ld+json">{"@type":"Event","name":"제25회 서울국제마라톤","startDate":"2025-03-16","url":"https://event.example/exact"}</script>`,
+      ),
     ).toEqual(["https://event.example/exact"]);
     for (const attrs of [
       `notype="application/ld+json"`,
