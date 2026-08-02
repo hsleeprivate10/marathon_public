@@ -6,6 +6,7 @@ import { OfficialTransportError, remainingTime, runWithTimeout } from "./timeout
 import {
   type DnsLookup,
   type IpFamily,
+  type UrlFetchPurpose,
   type UrlPolicyRejection,
   resolvePublicUrl,
 } from "./url-policy.js";
@@ -60,6 +61,7 @@ export type OfficialFetchResult =
 
 export type OfficialFetchOptions = {
   readonly lookup?: DnsLookup;
+  readonly purpose?: UrlFetchPurpose;
   readonly transport?: OfficialTransport;
   readonly timeoutMs?: number;
 };
@@ -76,12 +78,19 @@ function transportHeaders(headers: IncomingHttpHeaders): TransportResponse["head
   return headers;
 }
 
+export function pinnedLookup(pinned: PinnedRequest): LookupFunction {
+  return (_hostname, options, callback) => {
+    if (options.all === true) {
+      callback(null, [{ address: pinned.address, family: pinned.family }]);
+      return;
+    }
+    callback(null, pinned.address, pinned.family);
+  };
+}
+
 const nodeTransport: OfficialTransport = (pinned) =>
   new Promise((resolve, reject) => {
     const url = new URL(pinned.url);
-    const lookup: LookupFunction = (_hostname, _options, callback) => {
-      callback(null, pinned.address, pinned.family);
-    };
     const options = {
       protocol: url.protocol,
       hostname: pinned.hostname,
@@ -89,7 +98,7 @@ const nodeTransport: OfficialTransport = (pinned) =>
       path: `${url.pathname}${url.search}`,
       method: pinned.method,
       headers: pinned.headers,
-      lookup,
+      lookup: pinnedLookup(pinned),
       family: pinned.family,
       signal: pinned.signal,
       agent: false,
@@ -123,6 +132,8 @@ export async function fetchOfficialPage(
   options: OfficialFetchOptions = {},
 ): Promise<OfficialFetchResult> {
   const lookup = options.lookup;
+  const purpose = options.purpose ?? "official";
+  const policyOptions = lookup === undefined ? { purpose } : { lookup, purpose };
   const transport = options.transport ?? nodeTransport;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   let currentUrl = input;
@@ -132,7 +143,7 @@ export async function fetchOfficialPage(
     const deadline = Date.now() + timeoutMs;
     let policy: Awaited<ReturnType<typeof resolvePublicUrl>>;
     try {
-      policy = await runWithTimeout(() => resolvePublicUrl(currentUrl, lookup), timeoutMs);
+      policy = await runWithTimeout(() => resolvePublicUrl(currentUrl, policyOptions), timeoutMs);
     } catch (error) {
       return {
         kind: "failed",

@@ -97,6 +97,24 @@ describe("fetchOfficialPage deadlines", () => {
     });
   });
 
+  it("times out traversal-purpose DNS lookup without starting transport", async () => {
+    vi.useFakeTimers();
+    const hangingLookup: DnsLookup = () => new Promise(() => undefined);
+
+    const result = fetchOfficialPage("https://race.example/register", {
+      lookup: hangingLookup,
+      timeoutMs: 25,
+      purpose: "traversal",
+    });
+    vi.advanceTimersByTime(25);
+
+    await expect(result).resolves.toEqual({
+      kind: "failed",
+      url: "https://race.example/register",
+      reason: "timeout",
+    });
+  });
+
   it("discards a response whose body stream times out", async () => {
     vi.useFakeTimers();
     let discards = 0;
