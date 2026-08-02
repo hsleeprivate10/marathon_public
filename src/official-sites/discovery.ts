@@ -1,19 +1,22 @@
 import {
-  type DiscoveredRaceLink,
+  type TraversalSeed,
+  applicationTraversalSeed,
+  discoveredApplicationUrl,
   discoveredOfficialHomepageUrl,
+  officialTraversalSeed,
   sourceDetailUrl,
   sourceId,
   transientIdentityHint,
 } from "../adapters/types.js";
 import type { Race } from "../contract.js";
 import { dedupKey } from "../normalize.js";
+import { scanContextualFieldLinks, scanDetailAnchors } from "./contextual-field-links.js";
 import {
   type RaceDetailContext,
   canonicalUrl,
   hasOwnedSourceDetailContext,
   isAllowedUrl,
 } from "./discovery-url-policy.js";
-import { scanHtmlAnchors } from "./html-anchors.js";
 import { isJsonLdEventType, parseJsonLdDocuments } from "./jsonld-events.js";
 
 interface DiscoverRaceLinksInput {
@@ -26,8 +29,8 @@ interface DiscoverRaceLinksInput {
   readonly raceDetailContext: RaceDetailContext;
 }
 
-type Evidence = DiscoveredRaceLink["evidence"];
-type LinkKind = DiscoveredRaceLink["kind"];
+type Evidence = TraversalSeed["evidence"];
+type LinkKind = TraversalSeed["kind"];
 
 interface RawCandidate {
   readonly kind: LinkKind;
@@ -35,7 +38,7 @@ interface RawCandidate {
   readonly evidence: Evidence;
 }
 
-export function discoverRaceLinks(input: DiscoverRaceLinksInput): readonly DiscoveredRaceLink[] {
+export function discoverRaceLinks(input: DiscoverRaceLinksInput): readonly TraversalSeed[] {
   if (!hasOwnedSourceDetailContext(input)) return [];
   const raceKey = transientIdentityHint(dedupKey(input.race));
   const ownedDetailUrl = input.raceDetailContext.sourceDetailUrl;
@@ -47,26 +50,31 @@ export function discoverRaceLinks(input: DiscoverRaceLinksInput): readonly Disco
     dateHints: [transientIdentityHint(input.race.eventDate)],
     organizerHints: [],
   };
-  const raw = [...anchorCandidates(input.html), ...structuredCandidates(input.html)];
-  const byUrl = new Map<string, DiscoveredRaceLink>();
+  const raw = [
+    ...anchorCandidates(input.html),
+    ...contextualFieldCandidates(input.html),
+    ...structuredCandidates(input.html, input.race),
+  ];
+  const byUrl = new Map<string, TraversalSeed>();
 
   for (const candidate of raw) {
     const canonical = canonicalUrl(candidate.url, input.sourcePageUrl);
     if (canonical === undefined) continue;
     const kind = candidate.kind;
-    if (kind !== "official-site") continue;
     if (!isAllowedUrl(canonical, kind, input)) continue;
-    const officialUrl = discoveredOfficialHomepageUrl(canonical);
-    if (officialUrl === null) continue;
-    const link: DiscoveredRaceLink = {
+    const seedBase = {
       dedupKey: raceKey,
-      kind,
-      url: officialUrl,
       sourceId: parsedSourceId,
       sourceDetailUrl: parsedSourceDetailUrl,
       identityEvidence,
       evidence: candidate.evidence,
     };
+    const parsedUrl = discoveredUrl(canonical, kind);
+    if (parsedUrl === null) continue;
+    const link =
+      parsedUrl.kind === "application"
+        ? applicationTraversalSeed({ ...seedBase, url: parsedUrl.url })
+        : officialTraversalSeed({ ...seedBase, url: parsedUrl.url });
     const previous = byUrl.get(canonical);
     if (previous === undefined || candidatePriority(link) > candidatePriority(previous)) {
       byUrl.set(canonical, link);
@@ -75,7 +83,28 @@ export function discoverRaceLinks(input: DiscoverRaceLinksInput): readonly Disco
   return [...byUrl.values()];
 }
 
-function candidatePriority(link: DiscoveredRaceLink): number {
+function discoveredUrl(
+  canonical: string,
+  kind: LinkKind,
+):
+  | {
+      readonly kind: "application";
+      readonly url: NonNullable<ReturnType<typeof discoveredApplicationUrl>>;
+    }
+  | {
+      readonly kind: "official";
+      readonly url: NonNullable<ReturnType<typeof discoveredOfficialHomepageUrl>>;
+    }
+  | null {
+  if (kind === "application") {
+    const url = discoveredApplicationUrl(canonical);
+    return url === null ? null : { kind, url };
+  }
+  const url = discoveredOfficialHomepageUrl(canonical);
+  return url === null ? null : { kind, url };
+}
+
+function candidatePriority(link: TraversalSeed): number {
   if (link.kind === "application") return 4;
   if (link.evidence === "explicit-label") return 3;
   if (link.evidence === "structured-event") return 2;
@@ -84,12 +113,20 @@ function candidatePriority(link: DiscoveredRaceLink): number {
 
 function anchorCandidates(html: string): readonly RawCandidate[] {
   const candidates: RawCandidate[] = [];
-  for (const anchor of scanHtmlAnchors(html)) {
+  for (const anchor of scanDetailAnchors(html)) {
     const kind = kindFromLabel(textFromHtml(anchor.text));
     if (kind === undefined) continue;
     candidates.push({ kind, url: decodeHtml(anchor.href), evidence: "explicit-label" });
   }
   return candidates;
+}
+
+function contextualFieldCandidates(html: string): readonly RawCandidate[] {
+  return scanContextualFieldLinks(html).map((link) => ({
+    kind: "official",
+    url: decodeHtml(link.href),
+    evidence: "explicit-label",
+  }));
 }
 
 function textFromHtml(html: string): string {
@@ -109,8 +146,10 @@ function decodeHtml(value: string): string {
 
 function kindFromLabel(label: string): LinkKind | undefined {
   const compact = label.replace(/\s+/g, "");
-  if (/참가신청|접수|신청하기|신청/.test(compact)) return "application";
-  if (isOfficialHomepageLabel(label)) return "official-site";
+  const hasApplicationLabel = /참가신청|접수|신청하기|신청/.test(compact);
+  const hasOfficialLabel = isOfficialHomepageLabel(label);
+  if (hasApplicationLabel && !hasOfficialLabel) return "application";
+  if (hasOfficialLabel && !hasApplicationLabel) return "official";
   return undefined;
 }
 
@@ -129,30 +168,44 @@ function isHomepageDenialLabel(compact: string): boolean {
   return new RegExp(`^${subject}${particle}${denial}$`, "u").test(compact);
 }
 
-function structuredCandidates(html: string): readonly RawCandidate[] {
+function structuredCandidates(html: string, race: Race): readonly RawCandidate[] {
   const candidates: RawCandidate[] = [];
-  for (const document of parseJsonLdDocuments(html)) collectStructured(document, candidates);
+  for (const document of parseJsonLdDocuments(html)) collectStructured(document, candidates, race);
   return candidates;
 }
 
-function collectStructured(value: unknown, candidates: RawCandidate[]): void {
+function collectStructured(value: unknown, candidates: RawCandidate[], race: Race): void {
   if (Array.isArray(value)) {
-    for (const item of value) collectStructured(item, candidates);
+    for (const item of value) collectStructured(item, candidates, race);
     return;
   }
   if (!isObject(value)) return;
   const entries = Object.entries(value);
   const graph = entries.find(([key]) => key === "@graph")?.[1];
-  if (graph !== undefined) collectStructured(graph, candidates);
+  if (graph !== undefined) collectStructured(graph, candidates, race);
   const typeValue = entries.find(([key]) => key === "@type")?.[1];
   if (!isJsonLdEventType(typeValue)) return;
+  if (!isCurrentRaceEvent(entries, race)) return;
   const eventUrl = stringProperty(entries, "url");
   if (eventUrl !== undefined)
-    candidates.push({ kind: "official-site", url: eventUrl, evidence: "structured-event" });
+    candidates.push({ kind: "official", url: eventUrl, evidence: "structured-event" });
   const organizer = entries.find(([key]) => key === "organizer")?.[1];
   for (const url of organizerUrls(organizer)) {
-    candidates.push({ kind: "official-site", url, evidence: "structured-organizer" });
+    candidates.push({ kind: "official", url, evidence: "structured-organizer" });
   }
+}
+
+function isCurrentRaceEvent(entries: readonly (readonly [string, unknown])[], race: Race): boolean {
+  const name = stringProperty(entries, "name");
+  const startDate = stringProperty(entries, "startDate");
+  if (name === undefined || startDate === undefined) return false;
+  return (
+    normalizedText(name) === normalizedText(race.name) && startDate.slice(0, 10) === race.eventDate
+  );
+}
+
+function normalizedText(value: string): string {
+  return value.replace(/[\s\p{P}\p{S}]+/gu, "").toLowerCase();
 }
 
 function isObject(value: unknown): value is object {
