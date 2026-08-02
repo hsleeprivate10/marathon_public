@@ -64,7 +64,7 @@ describe("GoRunning adapter", () => {
     });
 
     expect(result.discoveryCandidates).toHaveLength(1);
-    expect(result.discoveredOfficialCandidates).toEqual([]);
+    expect(result.traversalSeeds).toEqual([]);
     expect(result.stageCounters).toMatchObject({ rejectedCandidates: 1, sourceDetailsFetched: 0 });
   });
 });
@@ -138,10 +138,8 @@ describe("KAAF adapter", () => {
     expect(result.metadata.succeeded).toBe(true);
     expect(result).not.toHaveProperty("races");
     expect(result).not.toHaveProperty("discoveredLinks");
-    expect(result.discoveredOfficialCandidates.length).toBeGreaterThanOrEqual(1);
-    expect(result.stageCounters.discoveredOfficialCandidates).toBe(
-      result.discoveredOfficialCandidates.length,
-    );
+    expect(result.traversalSeeds.length).toBeGreaterThanOrEqual(1);
+    expect(result.stageCounters.traversalSeeds).toBe(result.traversalSeeds.length);
   });
 });
 
@@ -163,7 +161,7 @@ describe("Marathon Moa adapter", () => {
 
     expect(result).not.toHaveProperty("races");
     expect(result).not.toHaveProperty("discoveredLinks");
-    expect(result.discoveredOfficialCandidates).toEqual([]);
+    expect(result.traversalSeeds).toEqual([]);
   });
 
   it("rejects an embedded generic organizer homepage as an official candidate", async () => {
@@ -174,7 +172,7 @@ describe("Marathon Moa adapter", () => {
 
     expect(result).not.toHaveProperty("races");
     expect(result).not.toHaveProperty("discoveredLinks");
-    expect(result.discoveredOfficialCandidates.map((link) => link.url)).not.toContain(
+    expect(result.traversalSeeds.map((link) => link.url)).not.toContain(
       "https://generic-organizer.example/",
     );
   });
@@ -220,7 +218,7 @@ describe("Adapter result contract", () => {
       if (adapter.id === "kaaf") {
         expect(result).not.toHaveProperty("races");
         expect(result).not.toHaveProperty("discoveredLinks");
-        expect(result.discoveredOfficialCandidates.length).toBeGreaterThanOrEqual(1);
+        expect(result.traversalSeeds.length).toBeGreaterThanOrEqual(1);
         return;
       }
       expect(result).not.toHaveProperty("races");
@@ -248,11 +246,11 @@ describe("All adapters fail gracefully with missing fixtures", () => {
       expect(result.metadata.recordCount).toBe(0);
       if (adapter.id === "kaaf") {
         expect(result.discoveryCandidates).toEqual([]);
-        expect(result.discoveredOfficialCandidates).toEqual([]);
+        expect(result.traversalSeeds).toEqual([]);
         return;
       }
       expect(result.discoveryCandidates).toEqual([]);
-      expect(result.discoveredOfficialCandidates).toEqual([]);
+      expect(result.traversalSeeds).toEqual([]);
     });
   }
 });
