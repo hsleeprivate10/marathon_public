@@ -2,9 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import {
   type DiscoveredApplicationUrl,
   type DiscoveredOfficialUrl,
-  type DiscoveredRaceLink,
   type SourceDiscoveryCandidate,
   type TransientRaceIdentityEvidence,
+  type TraversalSeed,
   discoveredApplicationUrl,
   discoveredOfficialHomepageUrl,
   discoveredOfficialUrl,
@@ -61,15 +61,15 @@ function discoveryCandidate(owner: CandidateFixture): SourceDiscoveryCandidate {
 
 function enrichmentInput(
   owner: CandidateFixture,
-  discoveredOfficialCandidates: readonly DiscoveredRaceLink[],
+  traversalSeeds: readonly TraversalSeed[],
 ): OfficialEnrichmentInput {
   return {
     discoveryCandidates: [discoveryCandidate(owner)],
-    discoveredOfficialCandidates,
+    traversalSeeds,
   };
 }
 
-function applicationLink(owner: CandidateFixture, url: string): DiscoveredRaceLink {
+function applicationLink(owner: CandidateFixture, url: string): TraversalSeed {
   return {
     dedupKey: transientIdentityHint(`${owner.name}|${owner.eventDate}|application`),
     kind: "application",
@@ -81,10 +81,10 @@ function applicationLink(owner: CandidateFixture, url: string): DiscoveredRaceLi
   };
 }
 
-function officialLink(owner: CandidateFixture, url: string): DiscoveredRaceLink {
+function officialLink(owner: CandidateFixture, url: string): TraversalSeed {
   return {
     dedupKey: transientIdentityHint(`${owner.name}|${owner.eventDate}|official`),
-    kind: "official-site",
+    kind: "official",
     url: requiredDiscoveredOfficialUrl(url),
     sourceId: SOURCE_ID,
     sourceDetailUrl: SOURCE_DETAIL_URL,
@@ -147,11 +147,17 @@ describe("enrichment application URL policy", () => {
     expect(result.races).toEqual([]);
     expect(loadPage).not.toHaveBeenCalled();
     expect(result.counts).toEqual({
-      candidate: 0,
+      seed: 0,
       fetched: 0,
       accepted: 0,
       rejected: 0,
-      budgetSkipped: 0,
+      policyRejected: 0,
+      fetchRejected: 0,
+      identityRejected: 0,
+      depthSkipped: 0,
+      cycleSkipped: 0,
+      hostBudgetSkipped: 0,
+      runBudgetSkipped: 0,
     });
   });
 
@@ -197,12 +203,16 @@ describe("enrichment application URL policy", () => {
       options(loadPage),
     );
 
-    expect(loadPage.mock.calls.map(([url]) => url)).toEqual([officialUrl]);
+    expect(loadPage.mock.calls.map(([url]) => url)).toEqual([
+      "https://event.example.com/register",
+      officialUrl,
+      "https://organizer.example.com/Application.aspx",
+    ]);
     expect(result.races[0]).toMatchObject({
       applicationUrl: officialUrl,
       officialSiteUrl: officialUrl,
     });
-    expect(result.counts.candidate).toBe(1);
+    expect(result.counts.seed).toBe(3);
   });
 
   it.each([
@@ -211,7 +221,11 @@ describe("enrichment application URL policy", () => {
     "https://payments-marathon.example/register",
   ])("keeps public application URL %s as negative evidence only", async (url) => {
     const owner = candidateFixture(`허용 ${url}`);
-    const loadPage = vi.fn<OfficialPageLoader>();
+    const loadPage = vi.fn<OfficialPageLoader>(async (loadedUrl) => ({
+      kind: "failed",
+      url: loadedUrl,
+      reason: "fixture",
+    }));
 
     const result = await enrichOfficialSites(
       enrichmentInput(owner, [applicationLink(owner, url)]),
@@ -219,13 +233,19 @@ describe("enrichment application URL policy", () => {
     );
 
     expect(result.races).toEqual([]);
-    expect(loadPage).not.toHaveBeenCalled();
+    expect(loadPage).toHaveBeenCalledTimes(1);
     expect(result.counts).toEqual({
-      candidate: 0,
-      fetched: 0,
+      seed: 1,
+      fetched: 1,
       accepted: 0,
-      rejected: 0,
-      budgetSkipped: 0,
+      rejected: 1,
+      policyRejected: 0,
+      fetchRejected: 1,
+      identityRejected: 0,
+      depthSkipped: 0,
+      cycleSkipped: 0,
+      hostBudgetSkipped: 0,
+      runBudgetSkipped: 0,
     });
   });
 });

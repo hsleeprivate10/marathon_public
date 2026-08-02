@@ -42,6 +42,7 @@ export const KNOWN_AGGREGATOR_HOSTS = [
   "m.kaaf.or.kr",
   "maedal.com",
   "marathon.me.kr",
+  "marathongo.co.kr",
   "marathonmate.com",
   "marathonmate.store",
   "marathonmoa.com",
