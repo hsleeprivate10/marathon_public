@@ -84,7 +84,8 @@ a.home-race-link {
 }
 
 a.home-race-link:hover {
-  background: var(--surface-muted);
+  background-color: var(--surface-muted);
+  transform: translateY(-1px);
 }
 
 .home-page a.home-race-link:focus-visible {
@@ -177,6 +178,11 @@ a.home-race-link:hover {
   color: var(--quiet);
   font-size: 12px;
   font-weight: 600;
+  white-space: normal;
+}
+
+span.home-race-link .home-race-action {
+  justify-self: start;
 }
 
 a.home-race-link .home-race-action {

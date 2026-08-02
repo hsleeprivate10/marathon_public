@@ -1,5 +1,6 @@
 import type { Race } from "./contract.js";
 import { icon } from "./home-art.js";
+import "./style.css";
 import "./home.css";
 import { bindHomepageMenu } from "./home-menu.js";
 import { createRaceSelectors, formatRaceMonth } from "./home-month-selector.js";
@@ -124,7 +125,8 @@ export function createHomepage(
   heroImage.width = 237;
   heroImage.height = 256;
   heroImage.decoding = "async";
-  heroImage.fetchPriority = "high";
+  heroImage.loading = "lazy";
+  heroImage.fetchPriority = "low";
   heroImage.src = new URL(
     "logo2.png",
     new URL(import.meta.env.BASE_URL ?? "./", window.location.href),

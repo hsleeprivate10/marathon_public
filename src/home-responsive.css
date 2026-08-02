@@ -18,17 +18,22 @@
 
   .home-hero-art {
     min-height: 220px;
-    margin-top: var(--space-4);
+    margin-top: calc(var(--space-10) * 13);
   }
 
   .home-hero-visual {
+    display: grid;
     min-height: 0;
+    place-items: center;
   }
 
   .home-hero-visual .home-hero-art {
     position: relative;
+    width: min(18vw, 56px);
     inset: auto;
     height: auto;
+    min-height: 0;
+    transform: none;
   }
 
   .home-weather {
@@ -37,6 +42,12 @@
     left: auto;
     width: 100%;
     margin-top: var(--space-2);
+  }
+
+  .home-weather-title {
+    max-width: 8ch;
+    font-size: clamp(32px, 9vw, 40px);
+    line-height: 1.05;
   }
 
   .home-filter-panel {
@@ -100,6 +111,7 @@
     inset: auto;
     height: auto;
     min-height: 0;
+    transform: none;
   }
 
   .home-weather {

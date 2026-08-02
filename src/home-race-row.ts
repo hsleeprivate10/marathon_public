@@ -33,10 +33,6 @@ export function createRaceRow(race: Race): HTMLLIElement {
     anchor.href = href;
     anchor.target = "_blank";
     anchor.rel = "noopener noreferrer";
-    anchor.setAttribute(
-      "aria-label",
-      `${race.name}, ${race.eventDate}, ${race.venue}, ${courseLabel}, ${statusLabels[race.registrationStatus]}, 공식 홈페이지 열기`,
-    );
     link = anchor;
   }
 
