@@ -74,6 +74,37 @@ describe("race card link selection", () => {
     // Then
     expect(href).toBe("https://official.example/race");
   });
+
+  it("does not fall back to a MarathonGo source application URL", () => {
+    // Given
+    const race = {
+      ...baseRace,
+      applicationUrl: "https://entry.saunarun-official.example.org/register/2026",
+      sources: ["marathongo"],
+    } satisfies Race;
+
+    // When
+    const href = raceHref(race);
+
+    // Then
+    expect(href).toBeNull();
+  });
+
+  it("keeps the verified final official URL as the only href", () => {
+    // Given
+    const race = {
+      ...baseRace,
+      applicationUrl: "https://entry.saunarun-official.example.org/register/2026",
+      officialSiteUrl: "https://saunarun-official.example.org/2026",
+      sources: ["official-sites"],
+    } satisfies Race;
+
+    // When
+    const href = raceHref(race);
+
+    // Then
+    expect(href).toBe("https://saunarun-official.example.org/2026");
+  });
 });
 
 describe("GoRunning detail URL policy", () => {
