@@ -18,7 +18,7 @@ Parser tests must use the captured files under `tests/fixtures/`; they must neve
 | `tests/normalize.test.ts` | Korean name normalization and merging |
 | `tests/adapters.test.ts` | Per-source fixture parsing and failure isolation |
 | `tests/orchestrator.test.ts` | Sequential collection and generated JSON |
-| `tests/official-sites/` | Candidate discovery, live SSRF-safe transport, parsing, identity, merge, fixtures, and the 40-loader-invocation budget |
+| `tests/official-sites/` | Traversal-seed discovery, purpose-aware live SSRF-safe transport, parsing, identity, merge, fixtures, and the 40/2/10/3 traversal budgets |
 | `tests/filters.test.ts` | Exact AND filters and month-independent filter behavior |
 | `tests/page-model.test.ts` | Hash-route fallback and chronological homepage month grouping |
 | `tests/home-race-selection.test.ts` | Pure homepage year/month options and exact section-selection matrix |
@@ -36,7 +36,9 @@ Parser tests must use the captured files under `tests/fixtures/`; they must neve
 
 Before changing a parser, add or update a fixture assertion that would fail before the parser change. Shape-dependent browser scenarios must route `e2e/fixtures/collection.ts`; only the separate public-data smoke test reads the built `public/races.json`, and it must not assume years, months, or a current-month race. Keep TypeScript files below 250 pure lines by splitting parse, network, and presentation concerns.
 
-Event-logo work follows the same failing-fixture-first rule. Positive fixtures must bind one logo to one race name and date; negative fixtures must independently cover absent images, generic images, favicons/placeholders, header branding, neighboring races, ambiguous candidates, client-only strings, malformed/HTTP URLs, and relative URL resolution. Adapter tests must trap network transports and prove extraction uses only the race-owned HTML already returned by the adapter, with identical output across detail budgets. Official tests must prove that logo parsing accepts exact `Event`/`SportsEvent` records independently of the exact-`Event` official discovery rule, and that only an identity-accepted official page can replace the first adapter logo.
+Event-logo work follows the same failing-fixture-first rule. Positive fixtures must bind one logo to one race name and date; negative fixtures must independently cover absent images, generic site logos, generic images, favicons/placeholders, header branding, neighboring races, ambiguous candidates, client-only strings, malformed/HTTP URLs, and relative URL resolution. Adapter tests must trap network transports and prove extraction uses only the race-owned HTML already returned by the adapter, with identical output across detail budgets. Official tests must prove that logo parsing accepts exact `Event`/`SportsEvent` records independently of the exact-`Event` official discovery rule, and that only an identity-accepted official page can replace the first adapter logo.
+
+Logo E2E fixtures must stay deterministic and browser-only. Route remote event-logo responses inside Playwright, assert `referrerpolicy="no-referrer"`, lazy loading, low fetch priority, one-shot `logo1.png` fallback on error, and no request for far-below-fold logos before scroll. Fixture collection and Vitest suites must keep network transports mocked or unavailable so a logo candidate can never create an image fetch during collection.
 
 ## Adding or Repairing a Source
 
@@ -45,11 +47,12 @@ Event-logo work follows the same failing-fixture-first rule. Positive fixtures m
 3. Write a failing fixture test.
 4. Parse only the source-detail URL plus transient identity evidence needed to match an official page. Do not publish source dates, venues, courses, prices, notes, logos, registration state, or `applicationUrl`.
 5. Fetch only owned source detail pages. A source detail URL must pass the adapter detail policy and match the source-detail context used for discovery.
-6. Discover official homepage candidates only from the owned source detail. Registration, application, and payment links on that page are negative evidence only.
-7. Return a typed `AdapterResult` with `discoveryCandidates`, `discoveredOfficialCandidates`, source metadata, and stage counters rather than throwing through the orchestrator.
-8. If the already-loaded source HTML contains event-specific logo evidence, treat it as test evidence only unless official materialization accepts it through the current contract. Do not fetch an image/detail page, accept generic branding, or change any request budget to obtain a logo.
-9. Treat logo absence or rejection as an omitted optional field, not an adapter failure.
-10. Run the full local release check in `OPERATIONS.md`.
+6. Discover traversal seeds only from the owned source detail. Official labels, homepage fields, exact Event/organizer URLs, and application CTAs may become typed evidence; generic, payment, private, admin, API, source, wrong-race, 404, and unavailable pages must fail closed.
+7. MarathonGo trusted detail provenance is source-scoped: construct it only from the exact owned `/raceDetail/domestic/{slug}` page, require source ID `marathongo`, require at least one valid ISO date or non-empty venue, and use it only after external same-race identity has passed. It may fill missing `eventDate` or `venue`; conflicts and every other missing field fail closed.
+8. Return a typed `AdapterResult` with `discoveryCandidates`, `traversalSeeds`, source metadata, and stage counters rather than throwing through the orchestrator.
+9. If the already-loaded source HTML contains event-specific logo evidence, treat it as test evidence only unless official materialization accepts it through the current contract. Do not fetch an image/detail page, accept generic branding, or change any request budget to obtain a logo.
+10. Treat logo absence or rejection as an omitted optional field, not an adapter failure.
+11. Run the full local release check in `OPERATIONS.md`.
 
 ## Official-Site Fixtures
 
@@ -61,13 +64,15 @@ Adapter fixtures prove link discovery from source HTML. Official-page fixtures l
 4. Keep mapping targets inside the official fixture directory. Missing mappings and missing files are typed skips, not reasons to use the network.
 5. Run the focused adapter/official-site suites, then the complete fixture release path in `OPERATIONS.md`.
 
-Official discovery accepts only explicit race-detail homepage labels or JSON-LD whose `@type` is exactly `Event`, `http://schema.org/Event`, or `https://schema.org/Event`; matching is case-sensitive and rejects longer type names. Application labels on source details are negative evidence only. Discovery and parsing use the same exact Event-type predicate. The official parser reads Event JSON-LD first and then explicit labels; it does not infer fields from unrelated page text. Identity requires a matching normalized race name and rejects a conflicting published race date/year.
+Official discovery accepts only explicit race-detail homepage labels or JSON-LD whose `@type` is exactly `Event`, `http://schema.org/Event`, or `https://schema.org/Event`; matching is case-sensitive and rejects longer type names. Application labels on source details are typed traversal evidence only. Discovery and parsing use the same exact Event-type predicate. The official parser reads Event JSON-LD first and then explicit labels; it does not infer fields from unrelated page text. Identity requires a matching normalized race name and rejects a conflicting published race date/year.
 
 Logo candidates are a separate parse-only concern: exact `Event` and `SportsEvent` JSON-LD plus race-owned, logo-marked DOM may supply a candidate, but they do not create an official-page candidate or relax official identity. Candidate images are never fetched during collection. On merge, the first adapter logo survives later adapter duplicates and an accepted official page with no selected logo; a selected candidate from an identity-accepted official page takes final precedence.
 
-Field authority is deliberately narrow. Source list and detail pages never provide published `Race` fields. Official materialization creates the public race only after identity acceptance, with required official fields parsed from the accepted page. `applicationUrl` comes only from a safe registration URL parsed on that accepted official page, or from the accepted official page URL itself. The final URL must pass the official-page policy before becoming `officialSiteUrl`, and verification state, verification/modification timestamps, and registration status are set after materialization. Official-page loading extends the shared policy with recursively decoded exact registration basenames with or without server extensions. Case and slash direction do not bypass it, while longer benign basenames such as `apiary`, `member-run`, `register-run`, and `application-guide` remain valid. The same official classifier runs for discovery classification, manually constructed candidate rejection, final official URLs, schema publication, and every live initial/redirect boundary.
+Field authority is deliberately narrow. Source list and detail pages never provide published `Race` fields. Official materialization creates the public race only after identity acceptance, with required official fields parsed from the accepted page. `applicationUrl` comes only from a safe registration URL parsed on that accepted official page, or from the accepted official page URL itself. The final URL must pass the official-page policy before becoming `officialSiteUrl`, and verification state, verification/modification timestamps, and registration status are set after materialization. Official-page loading extends the shared policy with recursively decoded exact registration basenames with or without server extensions. Case and slash direction do not bypass it, while longer benign basenames such as `apiary`, `member-run`, `register-run`, and `application-guide` remain valid. The same official classifier runs for discovery classification, manually constructed candidate rejection, final official URLs, schema publication, and every live initial/redirect boundary. Verified final HTTP official pages are allowed after those gates pass; prefer HTTPS whenever the destination redirects there.
 
-The 40 budget counts official candidate loader invocations. It is not a raw HTTP request count: in live mode the initial request plus at most two validated redirects can produce up to three transport requests per invocation. Candidate load, parse, and identity rejections are counted in `official-sites.message` and do not make the enrichment stage unsuccessful; fixture-index initialization or another stage setup/execution failure does.
+Traversal budgets are deterministic: 40 external fetches per run, 2 per race chain, 10 per host, and 3 sorted child links from an identity-accepted page. Level 0 is the list, level 1 is the owned detail, level 2 is the external seed, and level 3 is the optional final official page. Redirects are capped at 2 and do not consume semantic depth. Policy, fetch, identity, depth, cycle, host-budget, and run-budget outcomes are counted in `official-sites.message` and do not make the enrichment stage unsuccessful; fixture-index initialization or another stage setup/execution failure does.
+
+Source-specific title aliases such as MarathonGo `A in B` and `B A` variants are tried only as traversal identity seeds. Do not weaken `checkOfficialPageIdentity` globally, and do not serialize `sourceDetailUrl` or MarathonGo detail URLs.
 
 ## UI Work
 
@@ -80,3 +85,4 @@ The 40 budget counts official candidate loader invocations. It is not a raw HTTP
 - A runtime API/backend/database
 - Source logins, CAPTCHA handling, or browser-rendered scraping
 - Direct registration/payment flows
+- Public Data/ODCloud API, CSV fallback, service keys, GitHub Secrets, production browser scraping, database, or server collection
