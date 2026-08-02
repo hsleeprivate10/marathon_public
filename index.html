@@ -4,29 +4,270 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="/fonts/fonts.css" />
-    <link
-      rel="preload"
-      href="/fonts/noto-sans-kr-korean-400-normal.woff2"
-      as="font"
-      type="font/woff2"
-      crossorigin
-    />
-    <link
-      rel="preload"
-      href="/fonts/noto-sans-kr-korean-700-normal.woff2"
-      as="font"
-      type="font/woff2"
-      crossorigin
-    />
     <meta
       name="description"
       content="국내 마라톤 대회를 월별 홈 화면과 캘린더로 확인하고 공식 신청 페이지로 이동하세요."
     />
+    <style>
+      :root {
+        --surface-primary: #f8f8f6;
+        --text-primary: #242424;
+        --hero-navy: #0b3a67;
+        --hero-navy-deep: #072b50;
+        --hero-text: #ffffff;
+        --hero-text-muted: #d8e5ef;
+        --hero-accent: #ffb08a;
+        --hero-control-border: rgba(255, 255, 255, 0.42);
+        --hero-control-surface: rgba(255, 255, 255, 0.12);
+        --hero-art-shadow: 0 16px 24px rgba(7, 43, 80, 0.36);
+        --homepage-content-max: 1200px;
+        --homepage-gutter: clamp(16px, 5vw, 56px);
+        --space-2: 8px;
+        --space-3: 12px;
+        --space-4: 16px;
+        --space-8: 32px;
+        --space-10: 40px;
+        --radius-card: 12px;
+        --brand-image-max-block: 32px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--surface-primary);
+        color: var(--text-primary);
+        font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      .home-header {
+        background: var(--hero-navy-deep);
+      }
+
+      .home-header-inner,
+      .home-hero-inner {
+        width: min(100%, var(--homepage-content-max));
+        margin: 0 auto;
+        padding-right: var(--homepage-gutter);
+        padding-left: var(--homepage-gutter);
+      }
+
+      .home-header-inner {
+        display: flex;
+        min-height: 56px;
+        align-items: center;
+      }
+
+      .home-brand {
+        display: inline-flex;
+        min-width: 44px;
+        min-height: 44px;
+        align-items: center;
+      }
+
+      .home-brand-image {
+        display: block;
+        width: auto;
+        max-height: var(--brand-image-max-block);
+        object-fit: contain;
+      }
+
+      .home-hero {
+        background: var(--hero-navy);
+        color: var(--hero-text);
+      }
+
+      .home-hero-inner {
+        display: grid;
+        grid-template-columns: minmax(0, 0.52fr) minmax(0, 0.48fr);
+        gap: var(--space-8);
+        min-height: 420px;
+        align-items: center;
+        padding-top: var(--space-10);
+        padding-bottom: var(--space-10);
+      }
+
+      .home-eyebrow {
+        margin: 0 0 var(--space-3);
+        color: var(--hero-accent);
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+      }
+
+      .home-weather {
+        width: min(100%, calc(var(--space-10) * 11));
+        min-height: calc(var(--space-10) * 8);
+        margin-top: var(--space-2);
+        padding: var(--space-4);
+        border: 1px solid var(--hero-control-border);
+        border-radius: var(--radius-card);
+        background: var(--hero-control-surface);
+        box-shadow: var(--hero-art-shadow);
+        color: var(--hero-text);
+      }
+
+      .home-weather-heading {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--space-3);
+      }
+
+      .home-weather-title-group {
+        display: grid;
+        min-width: 0;
+        gap: 4px;
+      }
+
+      .home-weather-kicker {
+        color: var(--hero-accent);
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+      }
+
+      .home-weather-title {
+        margin: 0;
+        color: var(--hero-text);
+        font-size: 20px;
+        line-height: 1.25;
+        letter-spacing: -0.02em;
+        word-break: keep-all;
+      }
+
+      .home-weather-location {
+        display: grid;
+        max-width: 15ch;
+        color: var(--hero-text-muted);
+        text-align: right;
+      }
+
+      .home-weather-place {
+        color: var(--hero-text);
+        font-size: 12px;
+        font-weight: 700;
+        line-height: 1.3;
+        word-break: keep-all;
+      }
+
+      .home-weather-message {
+        max-width: 22ch;
+        margin: var(--space-8) 0 0;
+        color: var(--hero-text-muted);
+        font-size: 11px;
+        line-height: 1.6;
+        word-break: keep-all;
+      }
+
+      .home-hero-visual {
+        display: grid;
+        min-width: 0;
+        min-height: 340px;
+        place-items: center;
+      }
+
+      .home-hero-art {
+        display: block;
+        width: min(100%, 160px);
+        height: auto;
+        filter: drop-shadow(var(--hero-art-shadow));
+        object-fit: contain;
+      }
+
+      @media (max-width: 767px) {
+        .home-header-inner {
+          padding-top: var(--space-2);
+          padding-bottom: var(--space-2);
+        }
+
+        .home-hero-inner {
+          grid-template-columns: 1fr;
+          min-height: 0;
+          padding-top: var(--space-8);
+          padding-bottom: var(--space-8);
+        }
+
+        .home-weather {
+          width: 100%;
+        }
+
+        .home-weather-title {
+          max-width: 8ch;
+          font-size: clamp(32px, 9vw, 40px);
+          line-height: 1.05;
+        }
+
+        .home-hero-visual {
+          min-height: 0;
+        }
+
+        .home-hero-art {
+          width: min(18vw, 56px);
+          min-height: 220px;
+          margin-top: calc(var(--space-10) * 13);
+        }
+      }
+    </style>
     <title>마라톤 캘린더 | 국내 대회 일정</title>
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app">
+      <div class="home-page">
+        <header class="home-header">
+          <div class="home-header-inner">
+            <a class="home-brand" href="#" aria-label="마라톤 캘린더 홈">
+              <img
+                class="home-brand-image"
+                alt=""
+                aria-hidden="true"
+                width="237"
+                height="256"
+                src="/logo2.png"
+              />
+            </a>
+          </div>
+        </header>
+        <main class="home-main">
+          <section class="home-hero">
+            <div class="home-hero-inner">
+              <div class="home-hero-copy">
+                <p class="home-eyebrow">2026 KOREA RACE GUIDE</p>
+                <section class="home-weather" aria-label="현재 날씨" aria-live="polite">
+                  <div class="home-weather-heading">
+                    <div class="home-weather-title-group">
+                      <span class="home-weather-kicker">RUNNING WEATHER</span>
+                      <h1 class="home-weather-title">오늘의 달리기 날씨</h1>
+                    </div>
+                    <span class="home-weather-location">
+                      <span class="home-weather-place">현재 위치 또는 서울 기준</span>
+                    </span>
+                  </div>
+                  <p class="home-weather-message">
+                    현재 위치는 날씨·대기질과 도시 조회에만 사용합니다. 거부하거나 사용할 수 없으면 서울 기준으로 표시합니다.
+                  </p>
+                </section>
+              </div>
+              <div class="home-hero-visual">
+                <img
+                  class="home-hero-art"
+                  alt=""
+                  aria-hidden="true"
+                  width="237"
+                  height="256"
+                  decoding="async"
+                  loading="lazy"
+                  fetchpriority="low"
+                  src="/logo2.png"
+                />
+              </div>
+            </div>
+          </section>
+        </main>
+      </div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
