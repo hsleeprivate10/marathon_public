@@ -9,5 +9,7 @@
   "https://hangang-night.example.net/event/501": "hangang-night-event.html",
   "https://seoul-citizen.example.org/race": "seoul-citizen-event.html",
   "https://official-runningmap.example/event?id=9101": "runningmap-official-event.html",
-  "https://daegu-moonlight.example.com/official": "marathonmate-daegu-event.html"
+  "https://daegu-moonlight.example.com/official": "marathonmate-daegu-event.html",
+  "https://saunarun.com/products/z64zdfxy4mc9?variant=44332211": "marathongo-saunarun-application.html",
+  "https://saunarun-official.example.org/2026": "marathongo-saunarun-official.html"
 }

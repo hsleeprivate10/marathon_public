@@ -3,7 +3,14 @@ import { isAbsolute, relative, resolve } from "node:path";
 import { z } from "zod";
 import type { OfficialPageLoader } from "./enrichment.js";
 
-const FixtureIndexSchema = z.record(z.string().url(), z.string().min(1));
+const FixtureMapSchema = z.record(z.string().url(), z.string().min(1));
+const NestedFixtureIndexSchema = z
+  .object({
+    official: FixtureMapSchema.optional(),
+    level2: FixtureMapSchema.optional(),
+    level3: FixtureMapSchema.optional(),
+  })
+  .strict();
 
 export class OfficialFixtureIndexError extends Error {
   readonly fixtureDir: string;
@@ -18,10 +25,10 @@ export class OfficialFixtureIndexError extends Error {
 export async function createFixtureOfficialPageLoader(
   fixtureDir: string,
 ): Promise<OfficialPageLoader> {
-  let mappings: z.infer<typeof FixtureIndexSchema>;
+  let mappings: Readonly<Record<string, string>>;
   try {
     const raw = await readFile(resolve(fixtureDir, "index.json"), "utf8");
-    mappings = FixtureIndexSchema.parse(JSON.parse(raw));
+    mappings = parseFixtureIndex(JSON.parse(raw));
   } catch (error) {
     throw new OfficialFixtureIndexError(fixtureDir, error);
   }
@@ -41,4 +48,16 @@ export async function createFixtureOfficialPageLoader(
       return { kind: "skipped", url, reason: "missing-file" };
     }
   };
+}
+
+function parseFixtureIndex(value: unknown): Readonly<Record<string, string>> {
+  const nested = NestedFixtureIndexSchema.safeParse(value);
+  if (nested.success) return flattenNestedIndex(nested.data);
+  return FixtureMapSchema.parse(value);
+}
+
+function flattenNestedIndex(
+  index: z.infer<typeof NestedFixtureIndexSchema>,
+): Readonly<Record<string, string>> {
+  return { ...(index.official ?? {}), ...(index.level2 ?? {}), ...(index.level3 ?? {}) };
 }

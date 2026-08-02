@@ -96,7 +96,7 @@ describe("official page materialization", () => {
     });
   });
 
-  it("materializes accepted races only from official fields and drops fully populated source hints", () => {
+  it("materializes accepted races from official fields while preserving adapter logos", () => {
     const race = baseRace({
       registrationDeadline: "2026-03-01",
       venue: "가짜 출처 장소",
@@ -133,6 +133,7 @@ describe("official page materialization", () => {
       courses: [{ name: "10K", price: 40000, priceSource: "structured" }],
       applicationUrl: "https://official.example/final",
       officialSiteUrl: "https://official.example/final",
+      logoUrl: "https://source.example/fake-logo.png",
       sources: ["official-sites"],
       verified: true,
       lastVerified: "2026-01-02T00:00:00.000Z",
