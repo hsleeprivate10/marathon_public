@@ -9,12 +9,14 @@ import { GoRunningAdapter } from "./gorunning.js";
 import { KaafAdapter } from "./kaaf.js";
 import { KorMarathonAdapter } from "./kormarathon.js";
 import { MaedalAdapter } from "./maedal.js";
+import { MarathonGoAdapter } from "./marathongo.js";
 import { MarathonMateAdapter } from "./marathonmate.js";
 import { MarathonMoaAdapter } from "./marathonmoa.js";
 import { RunningMapAdapter } from "./runningmap.js";
 
 export const adapters = [
   GoRunningAdapter,
+  MarathonGoAdapter,
   KorMarathonAdapter,
   EMarathonAdapter,
   MaedalAdapter,
