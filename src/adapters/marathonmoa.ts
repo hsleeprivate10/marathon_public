@@ -12,10 +12,10 @@ import { detailFixtureName, safeMarathonMoaDetailUrl } from "./detail-source-url
 import {
   type AdapterResult,
   type CollectConfig,
-  type DiscoveredRaceLink,
   INTER_FETCH_DELAY_MS,
   type SourceAdapter,
   type SourceDiscoveryCandidate,
+  type TraversalSeed,
   failedMetadata,
   fetchWithTimeout,
   readFixture,
@@ -182,7 +182,7 @@ export const MarathonMoaAdapter: SourceAdapter = {
       const parsed = parseMarathonMoaHtml(homeHtml);
       const now = new Date().toISOString();
       const discoveryCandidates: SourceDiscoveryCandidate[] = [];
-      const discoveredOfficialCandidates: DiscoveredRaceLink[] = [];
+      const traversalSeeds: TraversalSeed[] = [];
       let sourceDetailsFetched = 0;
       let rejectedCandidates = 0;
       let budgetSkipped = 0;
@@ -228,14 +228,14 @@ export const MarathonMoaAdapter: SourceAdapter = {
           raceDetailContext: { present: true, sourceDetailUrl: detailUrl },
         });
         if (links.length === 0) rejectedCandidates += 1;
-        discoveredOfficialCandidates.push(...links);
+        traversalSeeds.push(...links);
 
         if (config.fixtureDir === undefined) await sleep(INTER_FETCH_DELAY_MS);
       }
 
       return {
         discoveryCandidates,
-        discoveredOfficialCandidates,
+        traversalSeeds,
         metadata: successMetadata(
           id,
           discoveryCandidates.length,
@@ -246,7 +246,7 @@ export const MarathonMoaAdapter: SourceAdapter = {
         stageCounters: {
           discoveryCandidates: discoveryCandidates.length,
           sourceDetailsFetched,
-          discoveredOfficialCandidates: discoveredOfficialCandidates.length,
+          traversalSeeds: traversalSeeds.length,
           rejectedCandidates,
           budgetSkipped,
         },
@@ -255,12 +255,12 @@ export const MarathonMoaAdapter: SourceAdapter = {
       const message = error instanceof Error ? error.message : String(error);
       return {
         discoveryCandidates: [],
-        discoveredOfficialCandidates: [],
+        traversalSeeds: [],
         metadata: failedMetadata(id, true, `Marathon Moa failed: ${message}`),
         stageCounters: {
           discoveryCandidates: 0,
           sourceDetailsFetched: 0,
-          discoveredOfficialCandidates: 0,
+          traversalSeeds: 0,
           rejectedCandidates: 0,
           budgetSkipped: 0,
         },
