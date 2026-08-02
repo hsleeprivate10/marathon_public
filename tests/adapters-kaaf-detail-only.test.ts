@@ -44,11 +44,9 @@ describe("KAAF detail-only official discovery", () => {
         },
       },
     ]);
-    expect(result.discoveredOfficialCandidates.map((candidate) => candidate.url)).toEqual([
-      OFFICIAL_URL,
-    ]);
-    expect(result.discoveredOfficialCandidates[0]).toMatchObject({
-      kind: "official-site",
+    expect(result.traversalSeeds.map((candidate) => candidate.url)).toEqual([OFFICIAL_URL]);
+    expect(result.traversalSeeds[0]).toMatchObject({
+      kind: "official",
       sourceId: "kaaf",
       sourceDetailUrl: DETAIL_URL,
       evidence: "explicit-label",
@@ -56,7 +54,7 @@ describe("KAAF detail-only official discovery", () => {
     expect(result.stageCounters).toEqual({
       discoveryCandidates: 1,
       sourceDetailsFetched: 1,
-      discoveredOfficialCandidates: 1,
+      traversalSeeds: 1,
       rejectedCandidates: 0,
       budgetSkipped: 0,
     });
@@ -69,7 +67,7 @@ describe("KAAF detail-only official discovery", () => {
     const enriched = await enrichOfficialSites(
       {
         discoveryCandidates: result.discoveryCandidates,
-        discoveredOfficialCandidates: result.discoveredOfficialCandidates,
+        traversalSeeds: result.traversalSeeds,
       },
       {
         today: "2025-01-01",
@@ -82,11 +80,17 @@ describe("KAAF detail-only official discovery", () => {
     );
 
     expect(enriched.counts).toEqual({
-      candidate: 1,
+      seed: 1,
       fetched: 1,
       accepted: 1,
       rejected: 0,
-      budgetSkipped: 0,
+      policyRejected: 0,
+      fetchRejected: 0,
+      identityRejected: 0,
+      depthSkipped: 0,
+      cycleSkipped: 0,
+      hostBudgetSkipped: 0,
+      runBudgetSkipped: 0,
     });
     expect(enriched.races).toHaveLength(1);
     expect(enriched.races[0]).toMatchObject({
@@ -112,11 +116,11 @@ describe("KAAF detail-only official discovery", () => {
       const result = await collect(fixture);
 
       expect(result.discoveryCandidates).toHaveLength(1);
-      expect(result.discoveredOfficialCandidates).toEqual([]);
+      expect(result.traversalSeeds).toEqual([]);
       expect(result.stageCounters).toMatchObject({
         discoveryCandidates: 1,
         sourceDetailsFetched: 1,
-        discoveredOfficialCandidates: 0,
+        traversalSeeds: 0,
         rejectedCandidates: 1,
         budgetSkipped: 0,
       });
@@ -127,11 +131,11 @@ describe("KAAF detail-only official discovery", () => {
     const result = await collect("missing-detail");
 
     expect(result.discoveryCandidates).toHaveLength(1);
-    expect(result.discoveredOfficialCandidates).toEqual([]);
+    expect(result.traversalSeeds).toEqual([]);
     expect(result.stageCounters).toMatchObject({
       discoveryCandidates: 1,
       sourceDetailsFetched: 0,
-      discoveredOfficialCandidates: 0,
+      traversalSeeds: 0,
       rejectedCandidates: 1,
       budgetSkipped: 0,
     });
@@ -141,11 +145,11 @@ describe("KAAF detail-only official discovery", () => {
     const result = await collect("unsafe-detail");
 
     expect(result.discoveryCandidates).toEqual([]);
-    expect(result.discoveredOfficialCandidates).toEqual([]);
+    expect(result.traversalSeeds).toEqual([]);
     expect(result.stageCounters).toMatchObject({
       discoveryCandidates: 0,
       sourceDetailsFetched: 0,
-      discoveredOfficialCandidates: 0,
+      traversalSeeds: 0,
       rejectedCandidates: 1,
       budgetSkipped: 0,
     });
@@ -157,11 +161,11 @@ describe("KAAF detail-only official discovery", () => {
     expect(result.metadata.succeeded).toBe(true);
     expect(result.metadata.recordCount).toBe(1);
     expect(result.discoveryCandidates).toHaveLength(1);
-    expect(result.discoveredOfficialCandidates).toEqual([]);
+    expect(result.traversalSeeds).toEqual([]);
     expect(result.stageCounters).toMatchObject({
       discoveryCandidates: 1,
       sourceDetailsFetched: 0,
-      discoveredOfficialCandidates: 0,
+      traversalSeeds: 0,
       rejectedCandidates: 0,
       budgetSkipped: 1,
     });

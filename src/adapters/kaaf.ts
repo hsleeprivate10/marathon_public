@@ -16,9 +16,9 @@ import { detailFixtureName, safeKaafDetailUrl } from "./detail-source-url.js";
 import {
   type AdapterResult,
   type CollectConfig,
-  type DiscoveredRaceLink,
   type SourceAdapter,
   type SourceDiscoveryCandidate,
+  type TraversalSeed,
   failedMetadata,
   fetchWithTimeout,
   sourceDetailUrl,
@@ -134,8 +134,8 @@ function transientRace(parsed: ParsedRace, detailUrl: string, now: string, id: s
   };
 }
 
-function isKaafOfficialCandidate(link: DiscoveredRaceLink): boolean {
-  if (link.kind !== "official-site") return false;
+function isKaafOfficialCandidate(link: TraversalSeed): boolean {
+  if (link.kind !== "official") return false;
   if (isGenericHomepageUrl(link.url)) return false;
   const path = new URL(link.url).pathname.toLowerCase();
   return !path.split(/[\/._-]+/u).some((segment) => RESULT_PATH_TOKENS.has(segment));
@@ -160,7 +160,7 @@ export const KaafAdapter: SourceAdapter = {
       const parsed = parseKaafHtml(homeHtml);
       const now = new Date().toISOString();
       const discoveryCandidates: SourceDiscoveryCandidate[] = [];
-      const discoveredOfficialCandidates: DiscoveredRaceLink[] = [];
+      const traversalSeeds: TraversalSeed[] = [];
       let sourceDetailsFetched = 0;
       let rejectedCandidates = 0;
       let budgetSkipped = 0;
@@ -206,7 +206,7 @@ export const KaafAdapter: SourceAdapter = {
           raceDetailContext: { present: true, sourceDetailUrl: detailUrl },
         }).filter(isKaafOfficialCandidate);
         if (links.length === 0) rejectedCandidates += 1;
-        discoveredOfficialCandidates.push(...links);
+        traversalSeeds.push(...links);
       }
 
       const message =
@@ -216,12 +216,12 @@ export const KaafAdapter: SourceAdapter = {
 
       return {
         discoveryCandidates,
-        discoveredOfficialCandidates,
+        traversalSeeds,
         metadata: successMetadata(id, discoveryCandidates.length, message),
         stageCounters: {
           discoveryCandidates: discoveryCandidates.length,
           sourceDetailsFetched,
-          discoveredOfficialCandidates: discoveredOfficialCandidates.length,
+          traversalSeeds: traversalSeeds.length,
           rejectedCandidates,
           budgetSkipped,
         },
@@ -230,12 +230,12 @@ export const KaafAdapter: SourceAdapter = {
       const message = error instanceof Error ? error.message : String(error);
       return {
         discoveryCandidates: [],
-        discoveredOfficialCandidates: [],
+        traversalSeeds: [],
         metadata: failedMetadata(id, true, `KAAF failed: ${message}`),
         stageCounters: {
           discoveryCandidates: 0,
           sourceDetailsFetched: 0,
-          discoveredOfficialCandidates: 0,
+          traversalSeeds: 0,
           rejectedCandidates: 0,
           budgetSkipped: 0,
         },
