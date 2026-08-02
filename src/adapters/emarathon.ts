@@ -13,9 +13,9 @@ import {
   type AdapterResult,
   type AdapterStageCounters,
   type CollectConfig,
-  type DiscoveredRaceLink,
   type SourceAdapter,
   type SourceDiscoveryCandidate,
+  type TraversalSeed,
   failedMetadata,
   fetchWithTimeout,
   readFixture,
@@ -32,7 +32,7 @@ const AGGREGATOR_HOSTS = KNOWN_AGGREGATOR_HOSTS;
 const EMPTY_COUNTERS: AdapterStageCounters = {
   discoveryCandidates: 0,
   sourceDetailsFetched: 0,
-  discoveredOfficialCandidates: 0,
+  traversalSeeds: 0,
   rejectedCandidates: 0,
   budgetSkipped: 0,
 };
@@ -44,7 +44,7 @@ function discoverDetailLinks(
   race: Race,
   detailHtml: string,
   sourcePageUrl: string,
-): readonly DiscoveredRaceLink[] {
+): readonly TraversalSeed[] {
   return discoverRaceLinks({
     race,
     sourceId: "emarathon",
@@ -166,7 +166,7 @@ export const EMarathonAdapter: SourceAdapter = {
       const parsed = parseEMarathonHtml(listHtml);
       const now = new Date().toISOString();
       const discoveryCandidates: SourceDiscoveryCandidate[] = [];
-      const discoveredOfficialCandidates: DiscoveredRaceLink[] = [];
+      const traversalSeeds: TraversalSeed[] = [];
       let sourceDetailsFetched = 0;
       let rejectedCandidates = 0;
       let budgetSkipped = 0;
@@ -201,24 +201,24 @@ export const EMarathonAdapter: SourceAdapter = {
           p.detailUrl,
         );
         if (links.length === 0) rejectedCandidates += 1;
-        discoveredOfficialCandidates.push(...links);
+        traversalSeeds.push(...links);
       }
 
       const counters: AdapterStageCounters = {
         discoveryCandidates: discoveryCandidates.length,
         sourceDetailsFetched,
-        discoveredOfficialCandidates: discoveredOfficialCandidates.length,
+        traversalSeeds: traversalSeeds.length,
         rejectedCandidates,
         budgetSkipped,
       };
 
       return {
         discoveryCandidates,
-        discoveredOfficialCandidates,
+        traversalSeeds,
         metadata: successMetadata(
           id,
-          discoveredOfficialCandidates.length,
-          `Discovered ${discoveryCandidates.length} e-Marathon source-detail candidates; fetched ${sourceDetailsFetched}; official candidates ${discoveredOfficialCandidates.length}; rejected ${rejectedCandidates}; budget skipped ${budgetSkipped}`,
+          traversalSeeds.length,
+          `Discovered ${discoveryCandidates.length} e-Marathon source-detail candidates; fetched ${sourceDetailsFetched}; traversal seeds ${traversalSeeds.length}; rejected ${rejectedCandidates}; budget skipped ${budgetSkipped}`,
         ),
         stageCounters: counters,
       };
@@ -226,7 +226,7 @@ export const EMarathonAdapter: SourceAdapter = {
       const message = error instanceof Error ? error.message : String(error);
       return {
         discoveryCandidates: [],
-        discoveredOfficialCandidates: [],
+        traversalSeeds: [],
         metadata: failedMetadata(id, true, `e-Marathon failed: ${message}`),
         stageCounters: EMPTY_COUNTERS,
       };
