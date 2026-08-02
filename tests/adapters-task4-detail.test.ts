@@ -17,17 +17,26 @@ const task4Cases = [
   {
     adapter: GoRunningAdapter,
     fixtureName: "gorunning",
-    officialUrl: "https://official-gorun.example/race?id=9101",
+    expectedSeeds: [
+      { kind: "official", url: "https://official-gorun.example/race?id=9101" },
+      { kind: "application", url: "https://apply-gorun.example/register?race=9101" },
+    ],
   },
   {
     adapter: KorMarathonAdapter,
     fixtureName: "kormarathon",
-    officialUrl: "https://official-kor.example/home?eventId=9101",
+    expectedSeeds: [
+      { kind: "official", url: "https://official-kor.example/home?eventId=9101" },
+      { kind: "application", url: "https://apply-kor.example/start?race=9101" },
+    ],
   },
   {
     adapter: EMarathonAdapter,
     fixtureName: "emarathon",
-    officialUrl: "https://official-emarathon.example/main?race=9101",
+    expectedSeeds: [
+      { kind: "application", url: "https://apply-emarathon.example/register?race=9101" },
+      { kind: "official", url: "https://official-emarathon.example/main?race=9101" },
+    ],
   },
 ] as const;
 
@@ -91,23 +100,16 @@ describe("Task 4 discovery-only adapters", () => {
       expect(globalThis.fetch).not.toHaveBeenCalled();
       expectNoPublishableAdapterFields(result);
       expect(result.discoveryCandidates).toHaveLength(1);
-      expect(result.discoveredOfficialCandidates).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            kind: "official-site",
-            sourceId: item.adapter.id,
-            url: item.officialUrl,
-            evidence: "explicit-label",
-          }),
-        ]),
+      expect(result.traversalSeeds.map((link) => ({ kind: link.kind, url: link.url }))).toEqual(
+        item.expectedSeeds,
       );
-      expect(result.discoveredOfficialCandidates.some((link) => link.kind === "application")).toBe(
-        false,
-      );
+      for (const seed of result.traversalSeeds) {
+        expect(seed).toMatchObject({ sourceId: item.adapter.id, evidence: "explicit-label" });
+      }
       expect(result.stageCounters).toMatchObject({
         discoveryCandidates: 1,
         sourceDetailsFetched: 1,
-        discoveredOfficialCandidates: result.discoveredOfficialCandidates.length,
+        traversalSeeds: result.traversalSeeds.length,
         rejectedCandidates: 0,
         budgetSkipped: 0,
       });
@@ -121,7 +123,7 @@ describe("Task 4 discovery-only adapters", () => {
         detailBudget: 5,
       });
       const officialRace = transientRaceForMaterialization(result);
-      const officialUrl = result.discoveredOfficialCandidates[0]?.url;
+      const officialUrl = result.traversalSeeds[0]?.url;
       if (officialUrl === undefined) throw new Error("expected official candidate");
       const merged = mergeOfficialPage(
         officialRace,
@@ -147,7 +149,7 @@ describe("Task 4 discovery-only adapters", () => {
       });
       expect(merged.race).not.toHaveProperty("notes");
       expect(merged.race).not.toHaveProperty("region");
-      expect(merged.race).not.toHaveProperty("logoUrl");
+      expect(merged.race.logoUrl).toBe("https://source.example/fake-logo.png");
     }
   });
 
@@ -162,7 +164,7 @@ describe("Task 4 discovery-only adapters", () => {
 
         expect(globalThis.fetch).not.toHaveBeenCalled();
         expectNoPublishableAdapterFields(result);
-        expect(result.discoveredOfficialCandidates).toEqual([]);
+        expect(result.traversalSeeds).toEqual([]);
         expect(result.stageCounters.discoveryCandidates).toBe(1);
         expect(result.stageCounters.rejectedCandidates).toBe(1);
       }
@@ -172,11 +174,11 @@ describe("Task 4 discovery-only adapters", () => {
         detailBudget: 0,
       });
       expectNoPublishableAdapterFields(zero);
-      expect(zero.discoveredOfficialCandidates).toEqual([]);
+      expect(zero.traversalSeeds).toEqual([]);
       expect(zero.stageCounters).toMatchObject({
         discoveryCandidates: 1,
         sourceDetailsFetched: 0,
-        discoveredOfficialCandidates: 0,
+        traversalSeeds: 0,
         rejectedCandidates: 0,
         budgetSkipped: 1,
       });

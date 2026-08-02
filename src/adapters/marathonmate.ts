@@ -11,9 +11,9 @@ import { detailFixtureName, safeMarathonMateDetailUrl } from "./detail-source-ur
 import {
   type AdapterResult,
   type CollectConfig,
-  type DiscoveredRaceLink,
   type SourceAdapter,
   type SourceDiscoveryCandidate,
+  type TraversalSeed,
   failedMetadata,
   fetchWithTimeout,
   readFixture,
@@ -146,7 +146,7 @@ export const MarathonMateAdapter: SourceAdapter = {
       const parsed = parseMarathonMateHtml(homeHtml);
       const now = new Date().toISOString();
       const discoveryCandidates: SourceDiscoveryCandidate[] = [];
-      const discoveredOfficialCandidates: DiscoveredRaceLink[] = [];
+      const traversalSeeds: TraversalSeed[] = [];
       let sourceDetailsFetched = 0;
       let rejectedCandidates = 0;
       let budgetSkipped = 0;
@@ -192,12 +192,12 @@ export const MarathonMateAdapter: SourceAdapter = {
           raceDetailContext: { present: true, sourceDetailUrl: detailUrl },
         });
         if (links.length === 0) rejectedCandidates += 1;
-        discoveredOfficialCandidates.push(...links);
+        traversalSeeds.push(...links);
       }
 
       return {
         discoveryCandidates,
-        discoveredOfficialCandidates,
+        traversalSeeds,
         metadata: successMetadata(
           id,
           discoveryCandidates.length,
@@ -208,7 +208,7 @@ export const MarathonMateAdapter: SourceAdapter = {
         stageCounters: {
           discoveryCandidates: discoveryCandidates.length,
           sourceDetailsFetched,
-          discoveredOfficialCandidates: discoveredOfficialCandidates.length,
+          traversalSeeds: traversalSeeds.length,
           rejectedCandidates,
           budgetSkipped,
         },
@@ -217,12 +217,12 @@ export const MarathonMateAdapter: SourceAdapter = {
       const message = error instanceof Error ? error.message : String(error);
       return {
         discoveryCandidates: [],
-        discoveredOfficialCandidates: [],
+        traversalSeeds: [],
         metadata: failedMetadata(id, true, `MarathonMate failed: ${message}`),
         stageCounters: {
           discoveryCandidates: 0,
           sourceDetailsFetched: 0,
-          discoveredOfficialCandidates: 0,
+          traversalSeeds: 0,
           rejectedCandidates: 0,
           budgetSkipped: 0,
         },
