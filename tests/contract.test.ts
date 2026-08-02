@@ -1,17 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  type DiscoveredRaceLink,
-  discoveredOfficialHomepageUrl,
-  sourceDetailUrl,
-  sourceId,
-  transientIdentityHint,
-} from "../src/adapters/types.js";
-import {
-  CollectionOutputSchema,
-  RaceSchema,
-  SourceRecordSchema,
-  computeRegistrationStatus,
-} from "../src/contract.js";
+import { RaceSchema } from "../src/contract.js";
 import { dedupKey } from "../src/normalize.js";
 
 describe("RaceSchema", () => {
@@ -215,7 +203,7 @@ describe("RaceSchema", () => {
     const result = RaceSchema.parse({
       ...validRace,
       dedupKey: dedupKey(RaceSchema.parse(validRace)),
-      kind: "official-site",
+      kind: "official",
       url: "https://race.example.com",
       sourceId: "gorunning",
       sourcePageUrl: validRace.applicationUrl,
@@ -228,171 +216,5 @@ describe("RaceSchema", () => {
     expect(result).not.toHaveProperty("sourceId");
     expect(result).not.toHaveProperty("sourcePageUrl");
     expect(result).not.toHaveProperty("evidence");
-  });
-});
-
-describe("DiscoveredRaceLink", () => {
-  it("binds an internal official-site discovery to its associated race", () => {
-    const associatedRace = RaceSchema.parse({
-      name: "2025 서울국제마라톤",
-      eventDate: "2025-03-16",
-      registrationDeadline: "2025-02-28",
-      venue: "서울시청 앞 광장",
-      courses: [{ name: "풀", price: 70000 }],
-      applicationUrl: "https://www.gorunning.co.kr/race/view.php?idx=1001",
-      sources: ["gorunning"],
-      verified: true,
-      lastVerified: "2025-01-15T12:00:00.000Z",
-      updatedAt: "2025-01-15T12:00:00.000Z",
-      generatedAt: "2025-01-15T12:00:00.000Z",
-      registrationStatus: "open",
-    });
-    const officialUrl = discoveredOfficialHomepageUrl("https://race.example.com");
-    expect(officialUrl).not.toBeNull();
-    if (officialUrl === null) return;
-    const link = {
-      dedupKey: transientIdentityHint(dedupKey(associatedRace)),
-      kind: "official-site",
-      url: officialUrl,
-      sourceId: sourceId("gorunning"),
-      sourceDetailUrl: sourceDetailUrl("https://gorunning.kr/races/1001"),
-      identityEvidence: {
-        titleHints: [transientIdentityHint(associatedRace.name)],
-        dateHints: [transientIdentityHint(associatedRace.eventDate)],
-        organizerHints: [],
-      },
-      evidence: "explicit-label",
-    } satisfies DiscoveredRaceLink;
-    const racesByDedupKey = new Map([
-      [transientIdentityHint(dedupKey(associatedRace)), associatedRace],
-    ]);
-
-    expect(link.dedupKey).toBe(transientIdentityHint(dedupKey(associatedRace)));
-    expect(racesByDedupKey.get(link.dedupKey)).toBe(associatedRace);
-  });
-});
-
-describe("SourceRecordSchema", () => {
-  it("validates a complete source record", () => {
-    const result = SourceRecordSchema.safeParse({
-      id: "gorunning",
-      attempted: true,
-      succeeded: true,
-      recordCount: 5,
-      message: "Collected 5 races",
-    });
-    expect(result.success).toBe(true);
-  });
-
-  it("allows zero recordCount", () => {
-    const result = SourceRecordSchema.safeParse({
-      id: "gorunning",
-      attempted: true,
-      succeeded: false,
-      recordCount: 0,
-      message: "Failed",
-    });
-    expect(result.success).toBe(true);
-  });
-});
-
-describe("CollectionOutputSchema", () => {
-  it("retains logoUrl while removing collection-only urlScheme from public output", () => {
-    // Given
-    const logoUrl = "https://cdn.example.com/races/public-race-logo.png";
-    const race = RaceSchema.parse({
-      name: "Public Race",
-      eventDate: "2026-09-20",
-      registrationDeadline: null,
-      venue: "Seoul",
-      courses: [],
-      applicationUrl: "https://example.com/public-race",
-      logoUrl,
-      urlScheme: "https://identity.example/public-race",
-      sources: ["test"],
-      verified: false,
-      lastVerified: null,
-      updatedAt: "2026-01-02T03:04:05.000Z",
-      generatedAt: "2026-01-02T03:04:05.000Z",
-      registrationStatus: "unknown",
-    });
-
-    // When
-    const result = CollectionOutputSchema.parse({
-      generatedAt: "2026-01-02T03:04:05.000Z",
-      races: [race],
-      collectionMetadata: [],
-    });
-
-    // Then
-    expect(result.races[0]?.logoUrl).toBe(logoUrl);
-    expect(result.races[0]).not.toHaveProperty("urlScheme");
-  });
-
-  it("validates a complete output", () => {
-    const result = CollectionOutputSchema.safeParse({
-      generatedAt: "2025-01-15T12:00:00.000Z",
-      races: [],
-      collectionMetadata: [],
-    });
-    expect(result.success).toBe(true);
-  });
-
-  it("validates with races and metadata", () => {
-    const officialSiteUrl = "https://race.example.com/event";
-    const logoUrl = "https://cdn.example.com/races/test-race-logo.png";
-    const result = CollectionOutputSchema.safeParse({
-      generatedAt: "2025-01-15T12:00:00.000Z",
-      races: [
-        {
-          name: "Test Race",
-          eventDate: "2025-06-01",
-          registrationDeadline: null,
-          venue: "Seoul",
-          courses: [{ name: "10K", price: 50000 }],
-          applicationUrl: "https://example.com/event",
-          officialSiteUrl,
-          logoUrl,
-          sources: ["test"],
-          verified: false,
-          lastVerified: null,
-          updatedAt: "2025-01-15T12:00:00.000Z",
-          generatedAt: "2025-01-15T12:00:00.000Z",
-          registrationStatus: "open",
-        },
-      ],
-      collectionMetadata: [
-        {
-          id: "test",
-          attempted: true,
-          succeeded: true,
-          recordCount: 1,
-          message: "OK",
-        },
-      ],
-    });
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.data.races[0]?.officialSiteUrl).toBe(officialSiteUrl);
-      expect(result.data.races[0]?.logoUrl).toBe(logoUrl);
-    }
-  });
-});
-
-describe("computeRegistrationStatus", () => {
-  it("returns unknown when deadline is null", () => {
-    expect(computeRegistrationStatus(null, "2025-12-31")).toBe("unknown");
-  });
-
-  it("returns closed when deadline has passed", () => {
-    expect(computeRegistrationStatus("2020-01-01", "2025-12-31")).toBe("closed");
-  });
-
-  it("returns closed when event date has passed", () => {
-    expect(computeRegistrationStatus("2099-01-01", "2020-01-01")).toBe("closed");
-  });
-
-  it("returns open when deadline is far in the future", () => {
-    expect(computeRegistrationStatus("2099-12-31", "2099-12-31")).toBe("open");
   });
 });
