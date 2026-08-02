@@ -58,22 +58,26 @@ describe("discovery URL policy", () => {
     "https://apply.example/register",
     "http://apply.example/register",
     "https://payments-marathon.example/register",
-  ])("treats source-detail application URL as negative evidence only: %s", (applicationUrl) => {
-    expect(discover(`<a href="${applicationUrl}">참가신청</a>`)).toEqual([]);
+  ])("emits safe external source-detail application traversal URL: %s", (applicationUrl) => {
+    expect(discover(`<a href="${applicationUrl}">참가신청</a>`).map((link) => link.kind)).toEqual([
+      "application",
+    ]);
   });
 
   it("accepts explicit and structured official homepage links only from owned source detail HTML", () => {
     const html = `<a href="https://official.example.com/home?utm_source=x&id=1001#top">공식 홈페이지</a>
       <script type="application/ld+json">{
         "@type":"Event",
+        "name":"제25회 서울국제마라톤",
+        "startDate":"2025-03-16",
         "url":"https://event.example.com/race?utm_campaign=x&eventId=abc",
         "organizer":{"@type":"Organization","url":"https://organizer.example.com/home?fbclid=x&race=1"}
       }</script>`;
 
     expect(discover(html).map((link) => [link.kind, link.evidence, link.url])).toEqual([
-      ["official-site", "explicit-label", "https://official.example.com/home?id=1001"],
-      ["official-site", "structured-event", "https://event.example.com/race?eventId=abc"],
-      ["official-site", "structured-organizer", "https://organizer.example.com/home?race=1"],
+      ["official", "explicit-label", "https://official.example.com/home?id=1001"],
+      ["official", "structured-event", "https://event.example.com/race?eventId=abc"],
+      ["official", "structured-organizer", "https://organizer.example.com/home?race=1"],
     ]);
   });
 
@@ -88,6 +92,39 @@ describe("discovery URL policy", () => {
       raceDetailContext: { present: false },
     });
 
+    expect(links).toEqual([]);
+  });
+
+  it("rejects application CTAs in source list HTML even when the list row names one race", () => {
+    // Given a source list row with a race name and application CTA
+    const links = discoverRaceLinks({
+      race: makeRace(),
+      sourceId: "gorunning",
+      sourcePageUrl: "https://www.gorunning.co.kr/races/",
+      sourceHosts: ["www.gorunning.co.kr"],
+      aggregatorHosts: ["gorunning.co.kr"],
+      html: `<article><h2>제25회 서울국제마라톤</h2><a href="https://apply.example.com/register">신청하기</a></article>`,
+      raceDetailContext: { present: false },
+    });
+
+    // Then no list-page CTA becomes traversal evidence
+    expect(links).toEqual([]);
+  });
+
+  it("rejects footer and related-card links without exact owned detail field context", () => {
+    // Given homepage URL text and application CTAs in generic footer/related contexts
+    const html = `<footer>
+        <a href="https://official.example.com/home?event=2025">https://official.example.com/home?event=2025</a>
+        <a href="https://apply.example.com/register?idx=1001">신청하기</a>
+      </footer>
+      <aside class="related-races">
+        <article><h3>다른 대회</h3><a href="https://other.example.com/home">https://other.example.com/home</a></article>
+      </aside>`;
+
+    // When discovery scans an exact owned detail page
+    const links = discover(html);
+
+    // Then generic footer/list-card links are fail-closed
     expect(links).toEqual([]);
   });
 

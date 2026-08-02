@@ -1,11 +1,12 @@
-import type { DiscoveredRaceLink } from "../adapters/types.js";
+import type { TraversalSeed } from "../adapters/types.js";
 import {
   decodedPath,
   hasBlockedPrivateBasename,
+  safeApplicationUrl,
   safeOfficialPageUrl,
 } from "./application-url-policy.js";
 
-type LinkKind = DiscoveredRaceLink["kind"];
+type LinkKind = TraversalSeed["kind"];
 
 export interface RaceDetailContext {
   readonly present: boolean;
@@ -71,8 +72,9 @@ export function canonicalUrl(raw: string, base: string): string | undefined {
 }
 
 export function isAllowedUrl(urlText: string, kind: LinkKind, input: UrlPolicyInput): boolean {
-  if (kind === "application") return false;
-  if (safeOfficialPageUrl(urlText) === null) return false;
+  const safeUrl =
+    kind === "application" ? safeApplicationUrl(urlText) : safeOfficialPageUrl(urlText);
+  if (safeUrl === null) return false;
   const url = new URL(urlText);
   const host = canonicalHostname(url.hostname);
   const path = decodedPath(url.pathname);
@@ -80,7 +82,7 @@ export function isAllowedUrl(urlText: string, kind: LinkKind, input: UrlPolicyIn
   if (isBlockedHost(host)) return false;
   if (hasBlockedPrivateBasename(path)) return false;
   if (BLOCKED_EXTENSIONS.some((extension) => path.endsWith(extension))) return false;
-  if (kind === "official-site" && isSourceOrAggregatorHost(host, input)) return false;
+  if (isSourceOrAggregatorHost(host, input)) return false;
   return true;
 }
 
