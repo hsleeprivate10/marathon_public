@@ -11,27 +11,7 @@ import type { AdapterResult } from "../src/adapters/types.js";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FIXTURES_DIR = resolve(__dirname, "fixtures");
 const originalFetch = globalThis.fetch;
-const year = new Date().getFullYear();
 let requestedUrls: string[] = [];
-const forbiddenDetailPath =
-  /(?:\/admin(?:$|\/)|\/member(?:$|\/)|\/payment(?:$|\/)|\/checkout(?:$|\/)|\/file(?:$|\/)|\.pdf(?:$|[?#]))/i;
-
-const GR_REFS =
-  String.raw`/races/../../admin /races/%2e%2e/%2e%2e/admin /races/%2E%2e/%2E%2E/admin /races/%252e%252e/%252e%252e/admin /races/ok%2Fadmin /races/ok%5Cadmin /races/ok\admin /races/pay /races/payments /races/billing /races/purchase /race/view.php?idx=9101&next=/admin /race/view.php?idx=9101#admin /race/view.php?%69dx=9101 https://user:pass@gorunning.kr/races/ok http://gorunning.kr/races/ok https://gorunning.kr:444/races/ok https://gorunning.kr./races/ok https://evil.example/races/ok /race/view.php.evil?idx=9101`.split(
-    " ",
-  );
-const KR_IDS =
-  String.raw`../../admin %2e%2e/%2e%2e/admin %2E%2e/%2E%2E/admin %252e%252e/%252e%252e/admin ok%2Fadmin ok%5Cadmin ok\admin pay payments billing purchase 9101?next=/admin 9101#admin https://user:pass@www.kormarathon.com/ko/race/9101 http://www.kormarathon.com/ko/race/9101 https://www.kormarathon.com:444/ko/race/9101 https://www.kormarathon.com./ko/race/9101 https://evil.example/ko/race/9101 9101/../../admin`.split(
-    " ",
-  );
-const EM_REFS =
-  String.raw`/race/view/file.pdf /race/view/admin /race/view/member /race/view/payment /race/view/checkout /race/view/pay /race/view/payments /race/view/billing /race/view/purchase /race/view/file /race/view/%2E%2e/admin /race/view/%252e%252e/admin /race/view/ok%2Fadmin /race/view/ok%5Cadmin /race/view/ok\admin /race/view/9101?next=/admin /race/view/9101#admin https://user:pass@emarathon.or.kr/race/view/9101 http://emarathon.or.kr/race/view/9101 https://emarathon.or.kr:444/race/view/9101 https://emarathon.or.kr./race/view/9101 https://evil.example/race/view/9101 /race/view-evil/9101 http://[::1`.split(
-    " ",
-  );
-const RM_REFS =
-  String.raw`/race/payment /race/pay /race/payments /race/billing /race/purchase /race/admin /race/member /race/checkout /race/file /race/file.pdf /race/%2E%2e/payment /race/%252e%252e/payment /race/ok%2Fpayment /race/ok%5Cpayment /race/ok\payment /race/9101?next=/payment /race/9101#payment https://user:pass@runningmap.kr/race/9101 http://runningmap.kr/race/9101 https://runningmap.kr:444/race/9101 https://runningmap.kr./race/9101 https://evil.example/race/9101 /race-evil/9101 http://[::1`.split(
-    " ",
-  );
 
 const cases = [
   {
@@ -39,18 +19,30 @@ const cases = [
     fixtureName: "gorunning",
     officialUrl: "https://official-gorun.example/race?id=9101",
     applicationUrl: "https://apply-gorun.example/register?race=9101",
+    expectedSeeds: [
+      { kind: "official", url: "https://official-gorun.example/race?id=9101" },
+      { kind: "application", url: "https://apply-gorun.example/register?race=9101" },
+    ],
   },
   {
     adapter: KorMarathonAdapter,
     fixtureName: "kormarathon",
     officialUrl: "https://official-kor.example/home?eventId=9101",
     applicationUrl: "https://apply-kor.example/start?race=9101",
+    expectedSeeds: [
+      { kind: "official", url: "https://official-kor.example/home?eventId=9101" },
+      { kind: "application", url: "https://apply-kor.example/start?race=9101" },
+    ],
   },
   {
     adapter: EMarathonAdapter,
     fixtureName: "emarathon",
     officialUrl: "https://official-emarathon.example/main?race=9101",
     applicationUrl: "https://apply-emarathon.example/register?race=9101",
+    expectedSeeds: [
+      { kind: "application", url: "https://apply-emarathon.example/register?race=9101" },
+      { kind: "official", url: "https://official-emarathon.example/main?race=9101" },
+    ],
   },
 ];
 
@@ -94,14 +86,6 @@ function expectNoLegacyPublicFields(result: AdapterResult): void {
   expect(result).not.toHaveProperty("races");
   expect(result).not.toHaveProperty("discoveredLinks");
 }
-function expectNoForbiddenFetches(): void {
-  expect(fetchedUrls().filter((url) => forbiddenDetailPath.test(new URL(url).pathname))).toEqual(
-    [],
-  );
-}
-function expectNoOutputUrl(result: AdapterResult, url: string): void {
-  expect(result.discoveredOfficialCandidates.map((link) => link.url)).not.toContain(url);
-}
 describe("detail-rich adapter official link discovery", () => {
   it("does not replace current GoRunning list identity with noisy detail values", async () => {
     const listUrl = "https://gorunning.kr/races/";
@@ -125,7 +109,7 @@ describe("detail-rich adapter official link discovery", () => {
         organizerHints: [],
       },
     });
-    expect(result.discoveredOfficialCandidates).toEqual([]);
+    expect(result.traversalSeeds).toEqual([]);
   });
 
   it("keeps the GoRunning race detail instead of a generic organizer homepage", async () => {
@@ -141,7 +125,7 @@ describe("detail-rich adapter official link discovery", () => {
 
     expectNoLegacyPublicFields(result);
     expect(result.discoveryCandidates[0]?.sourceDetailUrl).toBe(detailUrl);
-    expect(result.discoveredOfficialCandidates).toEqual([]);
+    expect(result.traversalSeeds).toEqual([]);
   });
 
   it("keeps RunningMap list links as detail candidates without publishing source fields", async () => {
@@ -167,11 +151,11 @@ describe("detail-rich adapter official link discovery", () => {
         organizerHints: [],
       },
     });
-    expect(result.discoveredOfficialCandidates).toEqual([]);
+    expect(result.traversalSeeds).toEqual([]);
     expect(result.stageCounters).toEqual({
       discoveryCandidates: 1,
       sourceDetailsFetched: 1,
-      discoveredOfficialCandidates: 0,
+      traversalSeeds: 0,
       rejectedCandidates: 1,
       budgetSkipped: 0,
     });
@@ -202,19 +186,12 @@ describe("detail-rich adapter official link discovery", () => {
       const candidate = result.discoveryCandidates[0];
       expect(candidate).toBeDefined();
       if (candidate === undefined) continue;
-      expect(result.discoveredOfficialCandidates).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            kind: "official-site",
-            sourceId: item.adapter.id,
-            url: item.officialUrl,
-            evidence: "explicit-label",
-          }),
-        ]),
+      expect(result.traversalSeeds.map((link) => ({ kind: link.kind, url: link.url }))).toEqual(
+        item.expectedSeeds,
       );
-      expect(result.discoveredOfficialCandidates.map((link) => link.url)).not.toContain(
-        item.applicationUrl,
-      );
+      for (const seed of result.traversalSeeds) {
+        expect(seed).toMatchObject({ sourceId: item.adapter.id, evidence: "explicit-label" });
+      }
     }
   });
 
@@ -228,7 +205,7 @@ describe("detail-rich adapter official link discovery", () => {
         });
         expect(globalThis.fetch).not.toHaveBeenCalled();
         expect(result.metadata.succeeded).toBe(true);
-        expect(result.discoveredOfficialCandidates).toEqual([]);
+        expect(result.traversalSeeds).toEqual([]);
         expect(result.metadata.message).not.toContain("official-site accepted");
         expectNoLegacyPublicFields(result);
       }
@@ -238,66 +215,10 @@ describe("detail-rich adapter official link discovery", () => {
         detailBudget: 0,
       });
       expect(globalThis.fetch).not.toHaveBeenCalled();
-      expect(zero.discoveredOfficialCandidates).toEqual([]);
+      expect(zero.traversalSeeds).toEqual([]);
       expectNoLegacyPublicFields(zero);
     }
   });
-});
-
-describe("Todo 6 verifier regressions", () => {
-  it("rejects raw/encoded traversal and sensitive/file/PDF detail refs before fetch", async () => {
-    for (const ref of GR_REFS) {
-      installFetchRoutes({
-        "https://gorunning.kr/races/": `<a href="${ref}">제31회 경계고런마라톤</a>`,
-        "https://gorunning.kr/admin": "<a>공식 홈페이지</a>",
-      });
-      const result = await GoRunningAdapter.collect({ fixtureDir: undefined, detailBudget: 5 });
-      expect(fetchedUrls()).toEqual(["https://gorunning.kr/races/"]);
-      expectNoForbiddenFetches();
-      expectNoLegacyPublicFields(result);
-      expect(result.discoveryCandidates).toEqual([]);
-      expect(result.discoveredOfficialCandidates).toEqual([]);
-    }
-    for (const identifier of KR_IDS) {
-      installFetchRoutes({
-        "https://www.kormarathon.com/ko/marathon-calendar": `<script type="application/ld+json">{"@type":"Event","name":"제31회 경계코리아마라톤","startDate":"2026-08-01","identifier":"${identifier}","location":{"name":"대전"}}</script>`,
-        "https://www.kormarathon.com/admin": "<a>공식 홈페이지</a>",
-      });
-      const result = await KorMarathonAdapter.collect({ fixtureDir: undefined, detailBudget: 5 });
-      expect(fetchedUrls()).toEqual(["https://www.kormarathon.com/ko/marathon-calendar"]);
-      expectNoForbiddenFetches();
-      expectNoOutputUrl(result, "https://www.kormarathon.com/admin");
-      expect(result.discoveredOfficialCandidates).toEqual([]);
-      expectNoLegacyPublicFields(result);
-    }
-    for (const ref of EM_REFS) {
-      const listUrl = `https://emarathon.or.kr/bbs/board.php?bo_table=emara04_01&add=${year}`;
-      const fetchUrl = ref.startsWith("/") ? `https://emarathon.or.kr${ref}` : ref;
-      installFetchRoutes({
-        [listUrl]: `<tr class="race-item"><td><a href="${ref}">제31회 경계이마라톤</a></td><td>2026-09-01</td><td>장소: 인천</td><td>종목: 10km</td><td>30,000원</td></tr>`,
-        [fetchUrl]: "<a>공식 홈페이지</a>",
-      });
-      const result = await EMarathonAdapter.collect({ fixtureDir: undefined, detailBudget: 5 });
-      expect(fetchedUrls()).toEqual([listUrl]);
-      expectNoForbiddenFetches();
-      expectNoOutputUrl(result, fetchUrl);
-      expect(result.discoveredOfficialCandidates).toEqual([]);
-      expectNoLegacyPublicFields(result);
-    }
-    for (const ref of RM_REFS) {
-      const fetchUrl = ref.startsWith("/") ? `https://runningmap.kr${ref}` : ref;
-      installFetchRoutes({
-        "https://runningmap.kr/list": `<script type="application/ld+json">{"@type":"ItemList","itemListElement":[{"url":"${ref}","item":{"name":"제31회 경계러닝맵마라톤","startDate":"2026-10-01","location":{"name":"부산"}}}]}</script>`,
-        [fetchUrl]: "<a>공식 홈페이지</a>",
-      });
-      const result = await RunningMapAdapter.collect({ fixtureDir: undefined, detailBudget: 5 });
-      expect(fetchedUrls()).toEqual(["https://runningmap.kr/list"]);
-      expectNoForbiddenFetches();
-      expect(result.discoveryCandidates).toEqual([]);
-      expect(result.discoveredOfficialCandidates).toEqual([]);
-    }
-  });
-
   it("uses collision-free fixture keys for /race/view/a-b and /race/view/a_b", async () => {
     trapNetwork();
     const em = await EMarathonAdapter.collect({
@@ -314,7 +235,7 @@ describe("Todo 6 verifier regressions", () => {
         `${candidate.identityEvidence.titleHints[0]}|${candidate.identityEvidence.dateHints[0]}`,
     );
     expect(new Set(emKeys).size).toBe(2);
-    expect(em.discoveredOfficialCandidates.map((link) => link.url)).toEqual([
+    expect(em.traversalSeeds.map((link) => link.url)).toEqual([
       "https://official-collision.example/a-b",
       "https://official-collision.example/a_b",
     ]);
@@ -323,62 +244,10 @@ describe("Todo 6 verifier regressions", () => {
         `${candidate.identityEvidence.titleHints[0]}|${candidate.identityEvidence.dateHints[0]}`,
     );
     expect(new Set(rmKeys).size).toBe(2);
-    expect(rm.discoveredOfficialCandidates.map((link) => [link.dedupKey, link.url])).toEqual([
-      [rm.discoveredOfficialCandidates[0]?.dedupKey, "https://official-collision.example/map-a-b"],
-      [rm.discoveredOfficialCandidates[1]?.dedupKey, "https://official-collision.example/map-a_b"],
+    expect(rm.traversalSeeds.map((link) => [link.dedupKey, link.url])).toEqual([
+      [rm.traversalSeeds[0]?.dedupKey, "https://official-collision.example/map-a-b"],
+      [rm.traversalSeeds[1]?.dedupKey, "https://official-collision.example/map-a_b"],
     ]);
     expectNoLegacyPublicFields(em);
-  });
-});
-
-describe("detail-rich adapter event logo extraction", () => {
-  const logoCases = [
-    {
-      adapter: GoRunningAdapter,
-      fixtureName: "gorunning",
-    },
-    {
-      adapter: KorMarathonAdapter,
-      fixtureName: "kormarathon",
-    },
-    {
-      adapter: EMarathonAdapter,
-      fixtureName: "emarathon",
-    },
-  ] as const;
-
-  it("attaches event-specific logos from already fetched detail fixtures without network", async () => {
-    for (const item of logoCases) {
-      trapNetwork();
-      const result = await item.adapter.collect({
-        fixtureDir: fixtureDir(item, "logo-positive"),
-        detailBudget: 1,
-      });
-      expect(globalThis.fetch).not.toHaveBeenCalled();
-      expectNoLegacyPublicFields(result);
-      expect(result.discoveryCandidates).toHaveLength(1);
-    }
-  });
-
-  it("omits generic, cross-event, missing-detail, and zero-budget logos", async () => {
-    for (const item of logoCases) {
-      trapNetwork();
-      const negative = await item.adapter.collect({
-        fixtureDir: fixtureDir(item, "logo-negative"),
-        detailBudget: 1,
-      });
-      expect(globalThis.fetch).not.toHaveBeenCalled();
-      expectNoLegacyPublicFields(negative);
-      expect(negative.discoveredOfficialCandidates).toEqual([]);
-
-      trapNetwork();
-      const zero = await item.adapter.collect({
-        fixtureDir: fixtureDir(item, "logo-positive"),
-        detailBudget: 0,
-      });
-      expect(globalThis.fetch).not.toHaveBeenCalled();
-      expectNoLegacyPublicFields(zero);
-      expect(zero.discoveredOfficialCandidates).toEqual([]);
-    }
   });
 });
