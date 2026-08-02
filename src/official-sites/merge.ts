@@ -1,3 +1,4 @@
+import type { MarathonGoTrustedDetail } from "../adapters/types.js";
 import type { Course, Race } from "../contract.js";
 import { computeRegistrationStatus, isValidIsoDate } from "../contract.js";
 import { canonicalCourses } from "../courses.js";
@@ -14,7 +15,9 @@ export type OfficialMergeRejectReason =
   | IdentityRejectReason
   | "unsafe-official-url"
   | "missing-event-date"
-  | "missing-venue";
+  | "missing-venue"
+  | "trusted-event-date-conflict"
+  | "trusted-venue-conflict";
 export type OfficialMergeOutcome =
   | { readonly accepted: true; readonly race: Race }
   | { readonly accepted: false; readonly reason: OfficialMergeRejectReason };
@@ -33,40 +36,91 @@ export function mergeOfficialPage(
   page: OfficialPageData,
   finalOfficialSiteUrl: string,
   verifiedAt = new Date().toISOString(),
+  trustedDetail?: MarathonGoTrustedDetail,
 ): OfficialMergeOutcome {
   const officialSiteUrl = safeOfficialPageUrl(finalOfficialSiteUrl);
   if (officialSiteUrl === null) return { accepted: false, reason: "unsafe-official-url" };
   const identity = checkOfficialPageIdentity(race, page);
   if (!identity.accepted) return { accepted: false, reason: identity.reason };
   const selected = selectedFields(page, identity.selection);
-  if (selected.eventDate === null) return { accepted: false, reason: "missing-event-date" };
-  if (!isValidIsoDate(selected.eventDate)) return { accepted: false, reason: "invalid-date" };
-  if (selected.venue === null) return { accepted: false, reason: "missing-venue" };
-  const logoUrl = selectRaceLogoCandidate(page.logoCandidates ?? [], {
-    name: selected.name ?? race.name,
-    eventDate: selected.eventDate,
+  const completed = completeFromTrustedDetail(selected, trustedDetail);
+  if (completed.kind === "conflict") return { accepted: false, reason: completed.reason };
+  const fields = completed.fields;
+  if (fields.eventDate === null) return { accepted: false, reason: "missing-event-date" };
+  const eventDate = fields.eventDate;
+  if (!isValidIsoDate(eventDate)) return { accepted: false, reason: "invalid-date" };
+  if (fields.venue === null) return { accepted: false, reason: "missing-venue" };
+  const selectedLogoUrl = selectRaceLogoCandidate(page.logoCandidates ?? [], {
+    name: fields.name ?? race.name,
+    eventDate,
   });
-  const registrationDeadline = selected.registrationDeadline;
-  const applicationUrl = safeRaceApplicationUrl(selected.registrationUrl) ?? officialSiteUrl;
+  const logoUrl = selectedLogoUrl ?? race.logoUrl;
+  const registrationDeadline = fields.registrationDeadline;
+  const applicationUrl = safeRaceApplicationUrl(fields.registrationUrl) ?? officialSiteUrl;
   return {
     accepted: true,
     race: {
-      name: selected.name ?? race.name,
-      eventDate: selected.eventDate,
+      name: fields.name ?? race.name,
+      eventDate,
       registrationDeadline,
-      venue: selected.venue,
-      courses: canonicalCourses(selected.courses),
+      venue: fields.venue,
+      courses: canonicalCourses(fields.courses),
       applicationUrl,
       ...(logoUrl === undefined ? {} : { logoUrl }),
       officialSiteUrl,
-      sources: ["official-sites"],
+      sources: completed.usedTrustedDetail ? ["official-sites", "marathongo"] : ["official-sites"],
       verified: true,
       lastVerified: verifiedAt,
       updatedAt: verifiedAt,
       generatedAt: race.generatedAt,
-      registrationStatus: computeRegistrationStatus(registrationDeadline, selected.eventDate),
+      registrationStatus: computeRegistrationStatus(registrationDeadline, eventDate),
     },
   };
+}
+
+type TrustedCompletionOutcome =
+  | {
+      readonly kind: "completed";
+      readonly fields: SelectedOfficialFields;
+      readonly usedTrustedDetail: boolean;
+    }
+  | {
+      readonly kind: "conflict";
+      readonly reason: "trusted-event-date-conflict" | "trusted-venue-conflict";
+    };
+
+function completeFromTrustedDetail(
+  selected: SelectedOfficialFields,
+  trustedDetail: MarathonGoTrustedDetail | undefined,
+): TrustedCompletionOutcome {
+  if (trustedDetail === undefined) {
+    return { kind: "completed", fields: selected, usedTrustedDetail: false };
+  }
+  if (
+    selected.eventDate !== null &&
+    trustedDetail.eventDate !== undefined &&
+    selected.eventDate !== trustedDetail.eventDate
+  ) {
+    return { kind: "conflict", reason: "trusted-event-date-conflict" };
+  }
+  if (
+    selected.venue !== null &&
+    trustedDetail.venue !== undefined &&
+    normalizeVenue(selected.venue) !== normalizeVenue(trustedDetail.venue)
+  ) {
+    return { kind: "conflict", reason: "trusted-venue-conflict" };
+  }
+  const eventDate = selected.eventDate ?? trustedDetail.eventDate ?? null;
+  const venue = selected.venue ?? trustedDetail.venue ?? null;
+  return {
+    kind: "completed",
+    fields: { ...selected, eventDate, venue },
+    usedTrustedDetail: selected.eventDate === null || selected.venue === null,
+  };
+}
+
+function normalizeVenue(value: string): string {
+  return value.replaceAll(/\s+/gu, " ").trim();
 }
 
 function selectedFields(
