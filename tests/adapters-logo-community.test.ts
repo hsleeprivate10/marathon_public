@@ -45,7 +45,7 @@ async function collectObserved(expected: Expected, detailBudget: number) {
       hasLegacyRaces: "races" in result,
       hasLegacyDiscoveredLinks: "discoveredLinks" in result,
       discoveryCandidates: result.discoveryCandidates.length,
-      discoveredOfficialCandidates: result.discoveredOfficialCandidates.length,
+      traversalSeeds: result.traversalSeeds.length,
     };
   } finally {
     spy.mockRestore();

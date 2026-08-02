@@ -1,39 +1,15 @@
-import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it, vi } from "vitest";
-import { KaafAdapter } from "../src/adapters/kaaf.js";
+import { describe, expect, it } from "vitest";
 import { MaedalAdapter } from "../src/adapters/maedal.js";
 import { MarathonMateAdapter } from "../src/adapters/marathonmate.js";
 import { MarathonMoaAdapter } from "../src/adapters/marathonmoa.js";
 import { RunningMapAdapter } from "../src/adapters/runningmap.js";
-import type { SourceAdapter } from "../src/adapters/types.js";
 import { enrichOfficialSites } from "../src/official-sites/enrichment.js";
 import { createFixtureOfficialPageLoader } from "../src/official-sites/fixture-loader.js";
-import { parseRaceLogoCandidates, selectRaceLogoCandidate } from "../src/race-logo-candidates.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FIXTURES_DIR = resolve(__dirname, "fixtures");
-
-async function collect(adapter: SourceAdapter, fixtureName: string) {
-  return adapter.collect({
-    fixtureDir: `${FIXTURES_DIR}/${adapter.id}/${fixtureName}`,
-    detailBudget: 0,
-  });
-}
-
-async function collectWithNetworkTrap(adapter: SourceAdapter, fixtureName: string) {
-  let fetchCalls = 0;
-  const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
-    fetchCalls += 1;
-    return Promise.reject(new Error(`unexpected fixture network call: ${String(input)}`));
-  });
-  try {
-    return { result: await collect(adapter, fixtureName), fetchCalls };
-  } finally {
-    fetchSpy.mockRestore();
-  }
-}
 
 const detailOnlyCases = [
   {
@@ -46,6 +22,11 @@ const detailOnlyCases = [
     sourceResultUrl: "https://maedal.com",
     sourceDetailUrl: "https://maedal.com/races/11111111-1111-4111-8111-111111111111",
     officialUrl: "https://seoul-spring.example.com/event",
+    expectedSeeds: [
+      { kind: "official", url: "https://seoul-spring.example.com/event" },
+      { kind: "application", url: "https://apply.seoul-spring.example.com/register" },
+    ],
+    expectedCrossSeedCount: 2,
     secondOfficialUrl: "https://busan-sea.example.com/event",
     officialApplicationUrl: "https://apply.seoul-spring.example.com/register",
     officialVenue: "서울 상암 월드컵공원",
@@ -62,6 +43,11 @@ const detailOnlyCases = [
     sourceResultUrl: "https://marathon.me.kr/events",
     sourceDetailUrl: "https://marathon.me.kr/events/50111111-1111-4111-8111-111111111111",
     officialUrl: "https://hangang-night.example.net/event/501",
+    expectedSeeds: [
+      { kind: "official", url: "https://hangang-night.example.net/event/501" },
+      { kind: "application", url: "https://entry.hangang-night.example.net/register" },
+    ],
+    expectedCrossSeedCount: 2,
     secondOfficialUrl: "https://geumgang-dawn.example.net/event/502",
     officialApplicationUrl: "https://entry.hangang-night.example.net/register",
     officialVenue: "한강공원 여의도 이벤트광장",
@@ -78,6 +64,11 @@ const detailOnlyCases = [
     sourceResultUrl: "https://runningmap.kr/list",
     sourceDetailUrl: "https://runningmap.kr/race/official-map-9101",
     officialUrl: "https://official-runningmap.example/event?id=9101",
+    expectedSeeds: [
+      { kind: "official", url: "https://official-runningmap.example/event?id=9101" },
+      { kind: "application", url: "https://apply-runningmap.example/start?id=9101" },
+    ],
+    expectedCrossSeedCount: 4,
     secondOfficialUrl: "https://official-collision.example/map-a-b",
     officialApplicationUrl: "https://apply.official-runningmap.example/register?id=9101",
     officialVenue: "부산 시민공원 잔디광장",
@@ -94,6 +85,11 @@ const detailOnlyCases = [
     sourceResultUrl: "https://marathonmate.store/domestic",
     sourceDetailUrl: "https://marathonmate.store/race/701",
     officialUrl: "https://daegu-moonlight.example.com/official",
+    expectedSeeds: [
+      { kind: "official", url: "https://daegu-moonlight.example.com/official" },
+      { kind: "application", url: "https://entry.daegu-moonlight.example.com/join" },
+    ],
+    expectedCrossSeedCount: 4,
     secondOfficialUrl: "https://gwangju-starlight.example.com/official",
     officialApplicationUrl: "https://entry.official-daegu-moonlight.example.com/join",
     officialVenue: "대구 두류공원 야외음악당",
@@ -124,19 +120,14 @@ describe("community source-detail-only discovery", () => {
           },
         },
       ]);
-      expect(result.discoveredOfficialCandidates.map((candidate) => candidate.url)).toEqual([
-        item.officialUrl,
-      ]);
-      expect(
-        result.discoveredOfficialCandidates.every(
-          (candidate) => candidate.kind === "official-site",
-        ),
-      ).toBe(true);
-      expect(result.discoveredOfficialCandidates[0]?.sourceDetailUrl).toBe(item.sourceDetailUrl);
+      expect(result.traversalSeeds.map((seed) => ({ kind: seed.kind, url: seed.url }))).toEqual(
+        item.expectedSeeds,
+      );
+      expect(result.traversalSeeds[0]?.sourceDetailUrl).toBe(item.sourceDetailUrl);
       expect(result.stageCounters).toEqual({
         discoveryCandidates: 1,
         sourceDetailsFetched: 1,
-        discoveredOfficialCandidates: 1,
+        traversalSeeds: item.expectedSeeds.length,
         rejectedCandidates: 0,
         budgetSkipped: 0,
       });
@@ -152,7 +143,7 @@ describe("community source-detail-only discovery", () => {
       const enriched = await enrichOfficialSites(
         {
           discoveryCandidates: result.discoveryCandidates,
-          discoveredOfficialCandidates: result.discoveredOfficialCandidates,
+          traversalSeeds: result.traversalSeeds,
         },
         {
           today: "2025-01-01",
@@ -165,11 +156,17 @@ describe("community source-detail-only discovery", () => {
       );
 
       expect(enriched.counts).toEqual({
-        candidate: 1,
-        fetched: 1,
+        seed: item.expectedSeeds.length,
+        fetched: item.expectedSeeds.length,
         accepted: 1,
-        rejected: 0,
-        budgetSkipped: 0,
+        rejected: item.expectedSeeds.length - 1,
+        policyRejected: 0,
+        fetchRejected: item.expectedSeeds.length - 1,
+        identityRejected: 0,
+        depthSkipped: 0,
+        cycleSkipped: 0,
+        hostBudgetSkipped: 0,
+        runBudgetSkipped: 0,
       });
       expect(enriched.races).toHaveLength(1);
       expect(enriched.races[0]).toMatchObject({
@@ -198,24 +195,24 @@ describe("community source-detail-only discovery", () => {
         detailBudget: 0,
       });
 
-      expect(generic.discoveredOfficialCandidates).toEqual([]);
-      expect(generic.stageCounters.discoveredOfficialCandidates).toBe(0);
+      expect(generic.traversalSeeds).toEqual([]);
+      expect(generic.stageCounters.traversalSeeds).toBe(0);
       expect(generic.stageCounters.rejectedCandidates).toBeGreaterThanOrEqual(1);
       expect(missingDetail.discoveryCandidates).toHaveLength(1);
-      expect(missingDetail.discoveredOfficialCandidates).toEqual([]);
+      expect(missingDetail.traversalSeeds).toEqual([]);
       expect(missingDetail.stageCounters).toMatchObject({
         discoveryCandidates: 1,
         sourceDetailsFetched: 0,
-        discoveredOfficialCandidates: 0,
+        traversalSeeds: 0,
         rejectedCandidates: 1,
         budgetSkipped: 0,
       });
       expect(skipped.discoveryCandidates).toHaveLength(1);
-      expect(skipped.discoveredOfficialCandidates).toEqual([]);
+      expect(skipped.traversalSeeds).toEqual([]);
       expect(skipped.stageCounters).toMatchObject({
         discoveryCandidates: 1,
         sourceDetailsFetched: 0,
-        discoveredOfficialCandidates: 0,
+        traversalSeeds: 0,
         rejectedCandidates: 0,
         budgetSkipped: 1,
       });
@@ -231,42 +228,13 @@ describe("community source-detail-only discovery", () => {
       expect(result.stageCounters).toMatchObject({
         discoveryCandidates: 2,
         sourceDetailsFetched: 2,
-        discoveredOfficialCandidates: 2,
+        traversalSeeds: item.expectedCrossSeedCount,
         rejectedCandidates: 0,
         budgetSkipped: 0,
       });
-      expect(result.discoveredOfficialCandidates.map((candidate) => candidate.url)).toEqual([
-        item.officialUrl,
-        item.secondOfficialUrl,
-      ]);
+      expect(
+        result.traversalSeeds.filter((seed) => seed.kind === "official").map((seed) => seed.url),
+      ).toEqual([item.officialUrl, item.secondOfficialUrl]);
     });
   }
-});
-
-describe("community adapter isolated event logo extraction", () => {
-  it("kaaf: proves complete-list logo scanning would leak a target-compatible adjacent row", async () => {
-    // Given the full fixture has selectable target logo evidence outside the target owned row.
-    const html = await readFile(resolve(FIXTURES_DIR, "kaaf/logo-neighbor/home.html"), "utf8");
-    const targetRace = { name: "서울 시민 마라톤대회", eventDate: "2025-05-04" };
-
-    // When comparing an illegal full-list scan with the legal adapter-owned row scan.
-    const fullListLogo = selectRaceLogoCandidate(
-      parseRaceLogoCandidates(html, "https://m.kaaf.or.kr/mobile/info/inside_all.asp"),
-      targetRace,
-    );
-    const { result } = await collectWithNetworkTrap(KaafAdapter, "logo-neighbor");
-
-    // Then the full list would leak the logo, while adapter output remains isolated.
-    expect(fullListLogo).toBe("https://assets.seoul-citizen.example.org/leaked-target-logo.png");
-    expect(result).not.toHaveProperty("races");
-    expect(result.discoveryCandidates[0]?.identityEvidence.titleHints).toEqual([targetRace.name]);
-  });
-
-  it("kaaf: ignores row logos because KAAF source rows never publish races", async () => {
-    const { result, fetchCalls } = await collectWithNetworkTrap(KaafAdapter, "logo-positive");
-
-    expect(fetchCalls).toBe(0);
-    expect(result).not.toHaveProperty("races");
-    expect(result.discoveredOfficialCandidates).toEqual([]);
-  });
 });
