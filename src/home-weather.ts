@@ -3,9 +3,14 @@ import { weatherIcon } from "./home-weather-icon.js";
 import type { AirQualityLevel, CurrentWeather, WeatherCondition } from "./home-weather-model.js";
 
 type WeatherPanelState =
+  | { readonly kind: "idle" }
   | { readonly kind: "loading" }
   | { readonly kind: "ready"; readonly weather: CurrentWeather }
   | { readonly kind: "unavailable" };
+
+type WeatherRenderOptions = {
+  readonly onUseCurrentLocation: () => void;
+};
 
 function element<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -116,7 +121,18 @@ function weatherHeading(location: string, context?: string): HTMLDivElement {
   return heading;
 }
 
-function renderReady(panel: HTMLElement, weather: CurrentWeather): void {
+function currentLocationButton(onUseCurrentLocation: () => void): HTMLButtonElement {
+  const button = element("button", "home-weather-location-button", "현재 위치 날씨 보기");
+  button.type = "button";
+  button.addEventListener("click", onUseCurrentLocation);
+  return button;
+}
+
+function renderReady(
+  panel: HTMLElement,
+  weather: CurrentWeather,
+  options: WeatherRenderOptions,
+): void {
   const place = weather.place;
   const heading = weatherHeading(
     place === null
@@ -168,12 +184,29 @@ function renderReady(panel: HTMLElement, weather: CurrentWeather): void {
   const footer = element("div", "home-weather-footer");
   const observed = element("time", undefined, `${weather.observedAt.slice(11)} 기준`);
   observed.dateTime = weather.observedAt;
-  footer.append(observed, sourceLinks());
+  footer.append(observed, currentLocationButton(options.onUseCurrentLocation), sourceLinks());
   panel.replaceChildren(heading, summary, measurements, footer);
 }
 
-function renderPanel(panel: HTMLElement, state: WeatherPanelState): void {
+function renderPanel(
+  panel: HTMLElement,
+  state: WeatherPanelState,
+  options: WeatherRenderOptions,
+): void {
   switch (state.kind) {
+    case "idle":
+      panel.removeAttribute("aria-busy");
+      panel.replaceChildren(
+        weatherHeading("현재 위치 또는 서울 기준"),
+        element(
+          "p",
+          "home-weather-message",
+          "현재 위치는 날씨·대기질과 도시 조회에만 사용합니다. 거부하거나 사용할 수 없으면 서울 기준으로 표시합니다.",
+        ),
+        currentLocationButton(options.onUseCurrentLocation),
+        sourceLinks(),
+      );
+      return;
     case "loading":
       panel.setAttribute("aria-busy", "true");
       panel.replaceChildren(
@@ -187,7 +220,7 @@ function renderPanel(panel: HTMLElement, state: WeatherPanelState): void {
       return;
     case "ready":
       panel.removeAttribute("aria-busy");
-      renderReady(panel, state.weather);
+      renderReady(panel, state.weather, options);
       return;
     case "unavailable":
       panel.removeAttribute("aria-busy");
@@ -204,19 +237,23 @@ export function createHomeWeather(): HTMLElement {
   const panel = element("section", "home-weather");
   panel.setAttribute("aria-label", "현재 날씨");
   panel.setAttribute("aria-live", "polite");
-  renderPanel(panel, { kind: "loading" });
-  requestAnimationFrame(() => {
-    window.setTimeout(() => {
-      if (!panel.isConnected) return;
-      void loadCurrentWeather().then(
-        (weather) => {
-          if (panel.isConnected) renderPanel(panel, { kind: "ready", weather });
-        },
-        () => {
-          if (panel.isConnected) renderPanel(panel, { kind: "unavailable" });
-        },
-      );
-    }, 0);
-  });
+  const useCurrentLocation = (): void => {
+    renderPanel(panel, { kind: "loading" }, { onUseCurrentLocation: useCurrentLocation });
+    void loadCurrentWeather().then(
+      (weather) => {
+        if (panel.isConnected)
+          renderPanel(
+            panel,
+            { kind: "ready", weather },
+            { onUseCurrentLocation: useCurrentLocation },
+          );
+      },
+      () => {
+        if (panel.isConnected)
+          renderPanel(panel, { kind: "unavailable" }, { onUseCurrentLocation: useCurrentLocation });
+      },
+    );
+  };
+  renderPanel(panel, { kind: "idle" }, { onUseCurrentLocation: useCurrentLocation });
   return panel;
 }

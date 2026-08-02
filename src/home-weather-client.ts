@@ -12,6 +12,13 @@ import {
 } from "./home-weather-model.js";
 
 const seoulWeatherPlace: WeatherPlace = { city: "서울특별시", district: "중구" };
+const seoulWeatherLocation: WeatherLocation = {
+  latitude: 37.57,
+  longitude: 126.98,
+  label: "서울 기준",
+};
+const geolocationTimeoutMs = 1_500;
+const weatherRequestTimeoutMs = 1_500;
 
 class WeatherLocationError extends Error {
   constructor(message: string) {
@@ -20,10 +27,21 @@ class WeatherLocationError extends Error {
   }
 }
 
-function locateBrowser(): Promise<WeatherCoordinates> {
+function mayUseBrowserLocation(): Promise<boolean> {
+  const permissions = navigator.permissions;
+  if (permissions === undefined) return Promise.resolve(true);
+  return permissions.query({ name: "geolocation" }).then(
+    (permission) => permission.state !== "denied",
+    () => true,
+  );
+}
+
+async function locateBrowser(): Promise<WeatherCoordinates> {
+  if (!(await mayUseBrowserLocation()))
+    throw new WeatherLocationError("Browser geolocation permission is denied");
   const geolocation = navigator.geolocation;
   if (geolocation === undefined)
-    return Promise.reject(new WeatherLocationError("Browser geolocation is unavailable"));
+    throw new WeatherLocationError("Browser geolocation is unavailable");
   return new Promise((resolve, reject) => {
     geolocation.getCurrentPosition(
       (position) =>
@@ -32,7 +50,7 @@ function locateBrowser(): Promise<WeatherCoordinates> {
           longitude: position.coords.longitude,
         }),
       (error) => reject(new WeatherLocationError(error.message)),
-      { enableHighAccuracy: false, timeout: 4_000, maximumAge: 600_000 },
+      { enableHighAccuracy: false, timeout: geolocationTimeoutMs, maximumAge: 600_000 },
     );
   });
 }
@@ -47,7 +65,7 @@ function requestAirQuality(location: WeatherLocation): Promise<AirQuality | null
         timezone: "auto",
       },
       retry: { limit: 0 },
-      timeout: 8_000,
+      timeout: weatherRequestTimeoutMs,
     })
     .json<unknown>()
     .then(parseAirQuality);
@@ -71,7 +89,7 @@ function requestWeatherPlace(location: WeatherLocation): Promise<WeatherPlace | 
         layer: "address",
       },
       retry: { limit: 0 },
-      timeout: 8_000,
+      timeout: weatherRequestTimeoutMs,
     })
     .json<unknown>()
     .then(parseWeatherPlace);
@@ -81,8 +99,7 @@ function requestWeatherPlace(location: WeatherLocation): Promise<WeatherPlace | 
   );
 }
 
-async function requestCurrentWeather(): Promise<CurrentWeather> {
-  const location = await chooseWeatherLocation(locateBrowser);
+async function requestWeather(location: WeatherLocation): Promise<CurrentWeather> {
   const forecastRequest = ky
     .get("https://api.open-meteo.com/v1/forecast", {
       searchParams: {
@@ -97,7 +114,7 @@ async function requestCurrentWeather(): Promise<CurrentWeather> {
         precipitation_unit: "mm",
       },
       retry: { limit: 0 },
-      timeout: 8_000,
+      timeout: weatherRequestTimeoutMs,
     })
     .json<unknown>();
   const [raw, airQuality, place] = await Promise.all([
@@ -108,7 +125,17 @@ async function requestCurrentWeather(): Promise<CurrentWeather> {
   return parseCurrentWeather(raw, location, { place, airQuality });
 }
 
+async function requestCurrentWeather(): Promise<CurrentWeather> {
+  return requestWeather(await chooseWeatherLocation(locateBrowser));
+}
+
 let currentWeatherRequest: Promise<CurrentWeather> | undefined;
+let defaultWeatherRequest: Promise<CurrentWeather> | undefined;
+
+export function loadDefaultWeather(): Promise<CurrentWeather> {
+  defaultWeatherRequest ??= requestWeather(seoulWeatherLocation);
+  return defaultWeatherRequest;
+}
 
 export function loadCurrentWeather(): Promise<CurrentWeather> {
   currentWeatherRequest ??= requestCurrentWeather();

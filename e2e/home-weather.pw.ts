@@ -1,44 +1,8 @@
-import { type Page, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { routeCollection } from "./fixtures/collection.js";
 import { weatherResponse } from "./fixtures/weather.js";
 import { observeErrors } from "./helpers/browser.js";
-
-async function denyGeolocation(page: Page): Promise<void> {
-  await page.addInitScript(() => {
-    Object.defineProperty(navigator, "geolocation", {
-      configurable: true,
-      value: {
-        getCurrentPosition: (
-          _success: PositionCallback,
-          error: PositionErrorCallback | null | undefined,
-          options?: PositionOptions,
-        ) => {
-          const requestCount = Number(document.documentElement.dataset.weatherLocationCount ?? "0");
-          document.documentElement.dataset.weatherLocationCount = String(requestCount + 1);
-          document.documentElement.dataset.weatherLocationOptions = JSON.stringify(options);
-          const disclosure = document.querySelector<HTMLElement>(".home-weather-message");
-          const disclosureStyle = disclosure === null ? null : getComputedStyle(disclosure);
-          const disclosureBox = disclosure?.getBoundingClientRect();
-          document.documentElement.dataset.weatherDisclosureVisible = String(
-            disclosureStyle !== null &&
-              disclosureStyle.visibility === "visible" &&
-              disclosureStyle.display !== "none" &&
-              disclosureBox !== undefined &&
-              disclosureBox.width > 0 &&
-              disclosureBox.height > 0,
-          );
-          error?.({
-            code: 1,
-            message: "permission denied",
-            PERMISSION_DENIED: 1,
-            POSITION_UNAVAILABLE: 2,
-            TIMEOUT: 3,
-          });
-        },
-      },
-    });
-  });
-}
+import { denyGeolocation } from "./helpers/geolocation.js";
 
 test("hero shows current weather for an allowed browser location", async ({ context, page }) => {
   // Given deterministic weather and an allowed current position in Busan,
@@ -48,16 +12,23 @@ test("hero shows current weather for an allowed browser location", async ({ cont
   await routeCollection(page);
 
   // When the homepage loads,
+  await page.goto("./");
+
+  // Then the hero starts with an explicit current-location disclosure and action.
+  const weather = page.getByRole("region", { name: "현재 날씨" });
+  await expect(weather).toBeVisible();
+  await expect(weather).toContainText("현재 위치 또는 서울 기준");
+  await expect(weather).toContainText("거부하거나 사용할 수 없으면 서울 기준");
+
+  // When the user chooses current-location weather,
   const weatherRequest = page.waitForRequest("https://api.open-meteo.com/v1/forecast?**");
   const airQualityRequest = page.waitForRequest(
     "https://air-quality-api.open-meteo.com/v1/air-quality?**",
   );
   const locationRequest = page.waitForRequest("https://nominatim.openstreetmap.org/reverse?**");
-  await page.goto("./");
+  await weather.getByRole("button", { name: "현재 위치 날씨 보기" }).click();
 
   // Then the hero reports the current-position weather with visible measurements and source.
-  const weather = page.getByRole("region", { name: "현재 날씨" });
-  await expect(weather).toBeVisible();
   await expect(
     page.locator(".home-hero-copy").getByRole("region", { name: "현재 날씨" }),
   ).toHaveCount(1);
@@ -108,12 +79,13 @@ test("hero uses Seoul weather when location permission is unavailable", async ({
       locationRequests += 1;
   });
 
-  // When the homepage loads,
-  const weatherRequest = page.waitForRequest("https://api.open-meteo.com/v1/forecast?**");
+  // When the homepage loads and the user asks for current-location weather,
   await page.goto("./");
+  const weather = page.getByRole("region", { name: "현재 날씨" });
+  const weatherRequest = page.waitForRequest("https://api.open-meteo.com/v1/forecast?**");
+  await weather.getByRole("button", { name: "현재 위치 날씨 보기" }).click();
 
   // Then the ready panel clearly identifies the Seoul fallback.
-  const weather = page.getByRole("region", { name: "현재 날씨" });
   await expect(weather).toContainText("서울특별시 중구");
   await expect(weather).toContainText("서울 기준");
   await expect(weather).toContainText("맑음");
@@ -121,10 +93,12 @@ test("hero uses Seoul weather when location permission is unavailable", async ({
   expect(requestUrl.searchParams.get("latitude")).toBe("37.57");
   expect(requestUrl.searchParams.get("longitude")).toBe("126.98");
   expect(locationRequests).toBe(0);
+
+  // And the permission path has an honest disclosure.
   await expect(page.locator("html")).toHaveAttribute("data-weather-disclosure-visible", "true");
   await expect(page.locator("html")).toHaveAttribute(
     "data-weather-location-options",
-    JSON.stringify({ enableHighAccuracy: false, timeout: 4_000, maximumAge: 600_000 }),
+    JSON.stringify({ enableHighAccuracy: false, timeout: 1_500, maximumAge: 600_000 }),
   );
 });
 
@@ -140,8 +114,9 @@ test("hero keeps weather when the current city lookup is unavailable", async ({
     await route.fulfill({ contentType: "application/json", body: "{}" });
   });
 
-  // When the homepage loads,
+  // When the homepage loads and the current-location action is used,
   await page.goto("./");
+  await page.getByRole("button", { name: "현재 위치 날씨 보기" }).click();
 
   // Then forecast data remains ready with an honest current-position fallback.
   const weather = page.getByRole("region", { name: "현재 날씨" });
@@ -159,8 +134,9 @@ test("hero keeps weather when air quality is unavailable", async ({ page }) => {
     await route.fulfill({ contentType: "application/json", body: "{}" });
   });
 
-  // When the homepage loads,
+  // When the homepage loads and the user asks for current-location weather,
   await page.goto("./");
+  await page.getByRole("button", { name: "현재 위치 날씨 보기" }).click();
 
   // Then only air quality degrades while the forecast remains ready.
   const weather = page.getByRole("region", { name: "현재 날씨" });
@@ -182,9 +158,10 @@ test("hero reserves the weather panel while current conditions load", async ({ p
     await route.fulfill({ contentType: "application/json", body: JSON.stringify(weatherResponse) });
   });
 
-  // When the homepage renders before weather completes,
+  // When the homepage renders and the user asks for current-location weather before it completes,
   await page.goto("./");
   const weather = page.getByRole("region", { name: "현재 날씨" });
+  await weather.getByRole("button", { name: "현재 위치 날씨 보기" }).click();
 
   // Then its reserved loading state transitions in place to ready data.
   await expect(weather).toHaveAttribute("aria-busy", "true");
@@ -208,8 +185,9 @@ test("hero reports when current weather is temporarily unavailable", async ({ pa
     await route.fulfill({ contentType: "application/json", body: "{}" });
   });
 
-  // When the homepage loads,
+  // When the homepage loads and the user asks for current-location weather,
   await page.goto("./");
+  await page.getByRole("button", { name: "현재 위치 날씨 보기" }).click();
 
   // Then the panel presents an honest unavailable state without an uncaught browser error.
   const weather = page.getByRole("region", { name: "현재 날씨" });
@@ -231,15 +209,17 @@ test("hash navigation reuses one location and weather request", async ({ page })
       airQualityRequests += 1;
   });
   await page.goto("./");
+  await page.getByRole("button", { name: "현재 위치 날씨 보기" }).click();
   await expect(page.getByRole("region", { name: "현재 날씨" })).toContainText("서울 기준");
 
   // When the user visits the calendar and returns through hash navigation,
   await page.getByRole("link", { name: "월간 캘린더" }).click();
   await expect(page.getByRole("heading", { name: "Marathon Calendar" })).toBeVisible();
   await page.getByRole("link", { name: "메인으로 돌아가기" }).click();
+  await page.getByRole("button", { name: "현재 위치 날씨 보기" }).click();
   await expect(page.getByRole("region", { name: "현재 날씨" })).toContainText("서울 기준");
 
-  // Then the application session reuses the original location and weather operation.
+  // Then the application session reuses the original current-weather operation.
   expect(weatherRequests).toBe(1);
   expect(airQualityRequests).toBe(1);
   await expect(page.locator("html")).toHaveAttribute("data-weather-location-count", "1");
@@ -258,9 +238,10 @@ for (const width of visualViewports) {
       await page.setViewportSize({ width, height: 900 });
       await page.emulateMedia({ colorScheme });
 
-      // When the production homepage settles,
+      // When the production homepage settles and current-location weather is requested,
       await page.goto("./");
       const weather = page.getByRole("region", { name: "현재 날씨" });
+      await weather.getByRole("button", { name: "현재 위치 날씨 보기" }).click();
       await expect(weather).toContainText("서울 기준");
 
       // Then the hero surfaces use their documented tokens, remain readable, and do not overflow.

@@ -7,8 +7,13 @@
 
 .home-hero-visual .home-hero-art {
   position: absolute;
-  inset: 0;
+  top: 50%;
+  left: 50%;
   display: block;
+  width: min(100%, 160px);
+  height: auto;
+  min-height: 0;
+  transform: translate(-50%, -50%);
 }
 
 .home-weather {
@@ -161,6 +166,17 @@
   text-underline-offset: 3px;
 }
 
+.home-weather-location-button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--hero-text);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
 .home-weather-sources {
   display: flex;
   flex-wrap: wrap;
@@ -169,7 +185,8 @@
   text-align: right;
 }
 
-.home-weather-source:hover {
+.home-weather-source:hover,
+.home-weather-location-button:hover {
   color: var(--hero-text);
 }
 
