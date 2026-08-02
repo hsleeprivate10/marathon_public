@@ -57,6 +57,9 @@ const KAAF_ROUTES = [
 const MARATHON_MOA_ROUTES = [
   { pathPrefix: "/events/", identifierPattern: /^[0-9a-f]{8}-[0-9a-f-]{27}$/i },
 ] as const;
+const MARATHON_GO_ROUTES = [
+  { pathPrefix: "/raceDetail/domestic/", identifierPattern: /^[a-z0-9][a-z0-9-]*$/ },
+] as const;
 const MARATHON_MATE_ROUTES = [
   { pathPrefix: "/race/", identifierPattern: /^[A-Za-z0-9][A-Za-z0-9_-]*$/ },
 ] as const;
@@ -176,6 +179,13 @@ export function safeMarathonMoaDetailUrl(rawRef: string): string | null {
     safeDetailUrl(rawRef, { baseUrl: "https://marathon.me.kr", routes: MARATHON_MOA_ROUTES }) ??
     safeDetailUrl(rawRef, { baseUrl: "https://marathonmoa.com", routes: MARATHON_MOA_ROUTES })
   );
+}
+
+export function safeMarathonGoDetailUrl(rawRef: string): string | null {
+  return safeDetailUrl(rawRef, {
+    baseUrl: "https://marathongo.co.kr",
+    routes: MARATHON_GO_ROUTES,
+  });
 }
 
 export function safeMarathonMateDetailUrl(rawRef: string): string | null {

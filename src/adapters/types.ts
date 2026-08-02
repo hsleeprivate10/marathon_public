@@ -1,11 +1,12 @@
 import { readFile } from "node:fs/promises";
 import ky from "ky";
 import { z } from "zod";
-import type { SourceRecord } from "../contract.js";
+import { type SourceRecord, isValidIsoDate } from "../contract.js";
 import {
   safeOfficialPageUrl,
   safeRaceApplicationUrl,
 } from "../official-sites/application-url-policy.js";
+import { safeMarathonGoDetailUrl } from "./detail-source-url.js";
 
 /** User-Agent sent with every outbound request */
 export const USER_AGENT = "MarathonDataBot/1.0 (+contact: marathon-data-collector)";
@@ -39,6 +40,11 @@ const SourceDetailUrlSchema = z.string().url().brand<"SourceDetailUrl">();
 const TransientIdentityHintSchema = z.string().min(1).brand<"TransientIdentityHint">();
 const DiscoveredOfficialUrlSchema = z.string().url().brand<"DiscoveredOfficialUrl">();
 const DiscoveredApplicationUrlSchema = z.string().url().brand<"DiscoveredApplicationUrl">();
+const MarathonGoTrustedEventDateSchema = z
+  .string()
+  .refine(isValidIsoDate)
+  .brand<"MarathonGoTrustedEventDate">();
+const MarathonGoTrustedVenueSchema = z.string().trim().min(1).brand<"MarathonGoTrustedVenue">();
 
 export type SourceId = z.infer<typeof SourceIdSchema>;
 export type SourceResultUrl = z.infer<typeof SourceResultUrlSchema>;
@@ -46,6 +52,16 @@ export type SourceDetailUrl = z.infer<typeof SourceDetailUrlSchema>;
 export type TransientIdentityHint = z.infer<typeof TransientIdentityHintSchema>;
 export type DiscoveredOfficialUrl = z.infer<typeof DiscoveredOfficialUrlSchema>;
 export type DiscoveredApplicationUrl = z.infer<typeof DiscoveredApplicationUrlSchema>;
+export type MarathonGoTrustedEventDate = z.infer<typeof MarathonGoTrustedEventDateSchema>;
+export type MarathonGoTrustedVenue = z.infer<typeof MarathonGoTrustedVenueSchema>;
+
+export type MarathonGoTrustedDetail = {
+  readonly kind: "marathongo-detail";
+  readonly sourceId: SourceId;
+  readonly sourceDetailUrl: SourceDetailUrl;
+  readonly eventDate?: MarathonGoTrustedEventDate;
+  readonly venue?: MarathonGoTrustedVenue;
+};
 
 export function sourceId(value: string): SourceId {
   return SourceIdSchema.parse(value);
@@ -61,6 +77,40 @@ export function sourceDetailUrl(value: string): SourceDetailUrl {
 
 export function transientIdentityHint(value: string): TransientIdentityHint {
   return TransientIdentityHintSchema.parse(value);
+}
+
+export function marathonGoTrustedDetail(input: {
+  readonly sourceId: SourceId;
+  readonly sourceDetailUrl: SourceDetailUrl;
+  readonly eventDate?: string;
+  readonly venue?: string;
+}): MarathonGoTrustedDetail | undefined {
+  if (input.sourceId !== "marathongo") return undefined;
+  if (safeMarathonGoDetailUrl(input.sourceDetailUrl) !== input.sourceDetailUrl) return undefined;
+  const eventDate = parseTrustedEventDate(input.eventDate);
+  const venue = parseTrustedVenue(input.venue);
+  if (input.eventDate !== undefined && eventDate === undefined) return undefined;
+  if (input.venue !== undefined && venue === undefined) return undefined;
+  if (eventDate === undefined && venue === undefined) return undefined;
+  return {
+    kind: "marathongo-detail",
+    sourceId: input.sourceId,
+    sourceDetailUrl: input.sourceDetailUrl,
+    ...(eventDate === undefined ? {} : { eventDate }),
+    ...(venue === undefined ? {} : { venue }),
+  };
+}
+
+function parseTrustedEventDate(value: string | undefined): MarathonGoTrustedEventDate | undefined {
+  if (value === undefined) return undefined;
+  const parsed = MarathonGoTrustedEventDateSchema.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
+}
+
+function parseTrustedVenue(value: string | undefined): MarathonGoTrustedVenue | undefined {
+  if (value === undefined) return undefined;
+  const parsed = MarathonGoTrustedVenueSchema.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
 }
 
 export function discoveredOfficialUrl(value: string): DiscoveredOfficialUrl | null {
@@ -91,46 +141,67 @@ export type SourceDiscoveryCandidate = {
   readonly identityEvidence: TransientRaceIdentityEvidence;
 };
 
-type DiscoveredRaceLinkBase = {
+type TraversalSeedBase = {
   readonly dedupKey: TransientIdentityHint;
   readonly sourceId: SourceId;
   readonly sourceResultUrl?: SourceResultUrl;
   readonly sourceDetailUrl?: SourceDetailUrl;
   readonly identityEvidence: TransientRaceIdentityEvidence;
   readonly evidence: "explicit-label" | "structured-event" | "structured-organizer";
+  readonly trustedDetail?: MarathonGoTrustedDetail;
 };
 
-export type DiscoveredRaceLink =
-  | (DiscoveredRaceLinkBase & {
-      readonly kind: "official-site";
-      readonly url: DiscoveredOfficialUrl;
-    })
-  | (DiscoveredRaceLinkBase & {
-      readonly kind: "application";
-      readonly url: DiscoveredApplicationUrl;
-    });
+export type OfficialTraversalSeed = TraversalSeedBase & {
+  readonly kind: "official";
+  readonly url: DiscoveredOfficialUrl;
+};
+
+export type ApplicationTraversalSeed = TraversalSeedBase & {
+  readonly kind: "application";
+  readonly url: DiscoveredApplicationUrl;
+};
+
+export type TraversalSeed = OfficialTraversalSeed | ApplicationTraversalSeed;
+
+type OfficialTraversalSeedInput = TraversalSeedBase & {
+  readonly url: DiscoveredOfficialUrl;
+};
+
+type ApplicationTraversalSeedInput = TraversalSeedBase & {
+  readonly url: DiscoveredApplicationUrl;
+};
+
+export function officialTraversalSeed(seed: OfficialTraversalSeedInput): OfficialTraversalSeed {
+  return { ...seed, kind: "official" };
+}
+
+export function applicationTraversalSeed(
+  seed: ApplicationTraversalSeedInput,
+): ApplicationTraversalSeed {
+  return { ...seed, kind: "application" };
+}
 
 export type AdapterStageCounters = {
   readonly discoveryCandidates: number;
   readonly sourceDetailsFetched: number;
-  readonly discoveredOfficialCandidates: number;
+  readonly traversalSeeds: number;
   readonly rejectedCandidates: number;
   readonly budgetSkipped: number;
 };
 
 export interface AdapterResult {
   readonly discoveryCandidates: readonly SourceDiscoveryCandidate[];
-  readonly discoveredOfficialCandidates: readonly DiscoveredRaceLink[];
+  readonly traversalSeeds: readonly TraversalSeed[];
   readonly metadata: SourceRecord;
   readonly stageCounters: AdapterStageCounters;
 }
 
-export function preferredDiscoveredRaceUrl(
-  links: readonly DiscoveredRaceLink[],
+export function preferredTraversalApplicationUrl(
+  seeds: readonly TraversalSeed[],
 ): string | undefined {
-  for (const link of links) {
-    if (link.kind !== "application") continue;
-    const safeUrl = safeRaceApplicationUrl(link.url);
+  for (const seed of seeds) {
+    if (seed.kind !== "application") continue;
+    const safeUrl = safeRaceApplicationUrl(seed.url);
     if (safeUrl !== null) return safeUrl;
   }
   return undefined;
