@@ -106,4 +106,35 @@ describe("mergeOfficialPage application URL materialization", () => {
       <a href="https://fake.example/after">참가신청</a>`),
     ).toBe(expectedApplicationUrl);
   });
+
+  it("uses only an accepted official-page registration URL instead of source evidence", () => {
+    // Given: the source-side application URL differs from the official page registration URL.
+    const sourceApplicationUrl = "https://entry.saunarun-official.example.org/register/2026";
+    const officialRegistrationUrl = "https://saunarun-official.example.org/entry/2026";
+    const sourceRace = {
+      ...race,
+      name: "2026 사우나런 올림픽공원",
+      eventDate: "2026-07-31",
+      applicationUrl: sourceApplicationUrl,
+      sources: ["marathongo"],
+    } satisfies Race;
+    const parsed = parseOfficialPage(
+      `<h1>2026 사우나런 올림픽공원</h1><p>대회일 2026년 7월 31일</p><p>장소: 올림픽공원 평화의광장</p><a href="${officialRegistrationUrl}">참가신청</a>`,
+      "https://saunarun-official.example.org/2026",
+    );
+
+    // When: merge materializes the verified final official page.
+    const result = mergeOfficialPage(
+      sourceRace,
+      parsed,
+      "https://saunarun-official.example.org/2026",
+      "2026-01-02T00:00:00.000Z",
+    );
+
+    // Then: applicationUrl comes from the accepted official page, never source evidence.
+    expect(result.accepted).toBe(true);
+    if (!result.accepted) throw new Error(result.reason);
+    expect(result.race.applicationUrl).toBe(officialRegistrationUrl);
+    expect(result.race.applicationUrl).not.toBe(sourceApplicationUrl);
+  });
 });
